@@ -136,10 +136,10 @@ void decode_bed_row(const uint8_t* bed_row,  /* raw bytes for this SNP */
                     uint8_t*       geno)      /* output, length sample_ct */
 {
         static const uint8_t bed_to_geno[4] = {
-        2,            /* 00 -> hom A1 -> 2 copies of A1 */
+        0,            /* 00 -> hom A1 -> 2 copies of A1 */
         MISSING_GENO, /* 01 -> missing */
         1,            /* 10 -> het     -> 1 copy of A1  */
-        0             /* 11 -> hom A2  -> 0 copies of A1 */
+        2             /* 11 -> hom A2  -> 0 copies of A1 */
     };
 
     for (uint32_t i = 0; i < sample_ct; i++) {

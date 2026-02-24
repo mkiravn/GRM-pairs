@@ -129,7 +129,13 @@ static individual_t* read_covariate_file(const char* covar_fname,
         if (line[0] != '\0' && line[0] != '\n') n++;
     }
     rewind(f);
-    fgets(line, sizeof(line), f); /* Skip header */
+    if (!fgets(line, sizeof(line), f)) {
+        fprintf(stderr, "Error: Unable to skip header in %s\n", covar_fname);
+        fclose(f);
+        for (uint32_t i = 0; i < n_covars; i++) free(covar_names[i]);
+        free(covar_names);
+        return NULL;
+    } /* Skip header */
 
     individual_t* individuals = malloc(n * sizeof(individual_t));
     if (!individuals) { 

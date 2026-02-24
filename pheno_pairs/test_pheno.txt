@@ -1,0 +1,4 @@
+IID	height	weight	age
+sample1	1.75	70.5	25
+sample2	1.82	85.0	30
+sample3	1.68	60.0	22

@@ -1,10 +1,12 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -std=c99 -lm
-TARGET = regress_y
-SOURCES = main.c
+CFLAGS = -Wall -Wextra -O2 -std=c99
+LDFLAGS = -lm
 
-$(TARGET): $(SOURCES)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCES)
+TARGET = regress_y
+SOURCE = main.c
+
+$(TARGET): $(SOURCE)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SOURCE) $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET)

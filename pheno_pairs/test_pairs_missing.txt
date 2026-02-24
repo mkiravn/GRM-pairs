@@ -1,0 +1,5 @@
+IID1	IID2
+sample1	sample2
+sample1	sample5
+sample5	sample2
+sample3	sample6

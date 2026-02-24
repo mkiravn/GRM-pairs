@@ -1,0 +1,3 @@
+ID	PHENO
+bob	1.5
+cathy	2.0

@@ -62,7 +62,12 @@ static pheno_entry_t* read_pheno_file(const char* pheno_fname,
         
         /* Re-read first line to extract column names */
         rewind(f);
-        fgets(line, sizeof(line), f);
+        if (!fgets(line, sizeof(line), f)) {
+            fprintf(stderr, "Error: Unable to read header line from %s\n", pheno_fname);
+            fclose(f);
+            free(pheno_names);
+            return NULL;
+        }
         
         token = strtok(line, " \t\n\r"); /* Skip IID column */
         for (uint32_t i = 0; i < n_phenos; i++) {
@@ -94,7 +99,13 @@ static pheno_entry_t* read_pheno_file(const char* pheno_fname,
         if (line[0] != '\0' && line[0] != '\n') n++;
     }
     rewind(f);
-    fgets(line, sizeof(line), f); /* Skip header */
+    if (!fgets(line, sizeof(line), f)) {
+        fprintf(stderr, "Error: Unable to skip header in %s\n", pheno_fname);
+        fclose(f);
+        for (uint32_t i = 0; i < n_phenos; i++) free(pheno_names[i]);
+        free(pheno_names);
+        return NULL;
+    } /* Skip header */
 
     pheno_entry_t* entries = malloc(n * sizeof(pheno_entry_t));
     if (!entries) { 

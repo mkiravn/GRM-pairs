@@ -1,0 +1,6 @@
+IID1	IID2	GRM
+sample1	sample2	0.125
+sample1	sample3	-0.050
+sample2	sample3	0.275
+sample1	sample4	0.025
+sample2	sample4	0.150

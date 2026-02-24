@@ -3,3 +3,9 @@
 grm_pairs/grm_pairs
 grm_pairs_debug/grm_pairs_verbose
 _codeql_detected_source_root
+# Compiled binaries
+*.o
+grm_pairs/grm_pairs
+pheno_pairs/pheno_pairs
+regress_y/regress_y
+regress_y/debug

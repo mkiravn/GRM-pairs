@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include "fast_linalg.h"
 
 /* Structure to store individual data */
 typedef struct {
@@ -363,52 +364,25 @@ static int fit_regression(individual_t* individuals, uint32_t n,
         }
     }
     
-    /* Simple Gaussian elimination to solve XtX * beta = Xty */
-    for (uint32_t i = 0; i < p; i++) {
-        /* Find pivot */
-        uint32_t pivot = i;
-        for (uint32_t j = i + 1; j < p; j++) {
-            if (fabs(XtX[j * p + i]) > fabs(XtX[pivot * p + i])) {
-                pivot = j;
-            }
-        }
-        
-        if (fabs(XtX[pivot * p + i]) < 1e-12) {
-            fprintf(stderr, "Error: Singular matrix in regression\n");
-            free(X); free(y); free(XtX); free(Xty); free(beta);
-            return 1;
-        }
-        
-        /* Swap rows if needed */
-        if (pivot != i) {
-            for (uint32_t j = 0; j < p; j++) {
-                double temp = XtX[i * p + j];
-                XtX[i * p + j] = XtX[pivot * p + j];
-                XtX[pivot * p + j] = temp;
-            }
-            double temp = Xty[i];
-            Xty[i] = Xty[pivot];
-            Xty[pivot] = temp;
-        }
-        
-        /* Eliminate */
-        for (uint32_t j = i + 1; j < p; j++) {
-            double factor = XtX[j * p + i] / XtX[i * p + i];
-            for (uint32_t k = i; k < p; k++) {
-                XtX[j * p + k] -= factor * XtX[i * p + k];
-            }
-            Xty[j] -= factor * Xty[i];
-        }
+    /* Fast Cholesky decomposition to solve XtX * beta = Xty */
+    /* This is much faster than Gaussian elimination: O(p³/3) vs O(p³) */
+    if (cholesky_decomp(XtX, p)) {
+        fprintf(stderr, "Error: Matrix not positive definite in regression\n");
+        free(X); free(y); free(XtX); free(Xty); free(beta);
+        return 1;
     }
     
-    /* Back substitution */
-    for (int i = p - 1; i >= 0; i--) {
-        beta[i] = Xty[i];
-        for (uint32_t j = i + 1; j < p; j++) {
-            beta[i] -= XtX[i * p + j] * beta[j];
-        }
-        beta[i] /= XtX[i * p + i];
+    /* Solve L * temp = Xty */
+    double* temp = malloc(p * sizeof(double));
+    if (!temp) {
+        free(X); free(y); free(XtX); free(Xty); free(beta);
+        return 1;
     }
+    forward_solve(XtX, Xty, temp, p);
+    
+    /* Solve L^T * beta = temp */
+    backward_solve(XtX, temp, beta, p);
+    free(temp);
     
     /* Calculate residuals */
     row = 0;

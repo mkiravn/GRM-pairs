@@ -1,15 +1,24 @@
 /*
  * main.c -- test harness for calc_rel_pairs()
  *
- * Reads .fam, .frq files directly. No subprocess calls.
+ * Reads .fam, .bim, and a frequency file directly. No subprocess calls.
  *
- * Usage: test_grm <bfile_prefix> <pair_file> <out_file>
+ * Usage: grm_pairs <bfile_prefix> <pair_file> <out_file>
  *
  * Expects:
- *   <bfile>.fam  -- plink fam file (FID IID PAT MAT SEX PHENO)
- *   <bfile>.bed  -- plink bed file
- *   <bfile>.frq  -- plink frequency file from --freq
- *                   (CHR SNP A1 A2 MAF NCHROBS)
+ *   <bfile>.fam   -- plink fam file (FID IID PAT MAT SEX PHENO)
+ *   <bfile>.bed   -- plink bed file
+ *   <bfile>.bim   -- plink bim file (CHR SNP CM BP A1 A2)
+ *   <bfile>.afreq -- plink2 frequency file from --freq (tried first)
+ *                    (#CHROM ID REF ALT1 ALT1_FREQ OBS_CT)
+ * or
+ *   <bfile>.frq   -- plink1.9 frequency file from --freq
+ *                    (CHR SNP A1 A2 MAF NCHROBS)
+ *
+ * The allele reported in the frequency file is compared against the A1
+ * column of the .bim.  If they differ, the frequency is flipped (1-p)
+ * so that p always equals freq(bim_A1), consistent with the .bed encoding
+ * (x = 0/1/2 copies of A1).
  */
 
 #include <stdio.h>
@@ -63,52 +72,145 @@ char** read_fam(const char* fam_fname, uint32_t* sample_ct_out)
 }
 
 /* ------------------------------------------------------------------ */
-/* Read .frqx -- returns array of true A1 frequencies, sets snp_ct   */
-/*                                                                     */
-/* .frqx format (plink --freqx output):                               */
-/*   CHR SNP A1 A2 C(HOM_A1) C(HET) C(HOM_A2) C(HAP_A1) C(HAP_A2)  */
-/*   C(MISSING)                                                        */
-/* First line is a header.                                             */
-/*                                                                     */
-/* A1 frequency = (2*HOM_A1 + HET) / (2*HOM_A1 + 2*HET + 2*HOM_A2) */
-/*                                                                     */
-/* This gives the true A1 allele frequency, which may be > 0.5,       */
-/* unlike --freq which always reports MAF <= 0.5. The GRM formula     */
-/* needs p_A1 specifically because the .bed encodes 0=HOM_A1,         */
-/* 1=HET, 2=HOM_A2, so x=0,1,2 counts A1 alleles. We must center     */
-/* by 2*p_A1 to match.                                                */
+/* Read .bim -- returns array of A1 allele strings, sets snp_ct       */
+/*                                                                      */
+/* .bim format: CHR SNP CM BP A1 A2                                   */
+/* A1 is the allele whose copy count (0/1/2) is stored in the .bed.   */
 /* ------------------------------------------------------------------ */
-double* read_frq(const char* frq_fname, uint32_t* snp_ct_out)
+static char** read_bim_a1(const char* bim_fname, uint32_t* snp_ct_out)
 {
-    FILE* f = fopen(frq_fname, "r");
-    if (!f) { perror(frq_fname); return NULL; }
+    FILE* f = fopen(bim_fname, "r");
+    if (!f) { perror(bim_fname); return NULL; }
+
+    uint32_t n = 0;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] != '\0' && line[0] != '\n') n++;
+    }
+    rewind(f);
+
+    char** a1s = malloc(n * sizeof(char*));
+    if (!a1s) { fclose(f); return NULL; }
+
+    uint32_t i = 0;
+    char chr[32], snpid[64], cm[32], bp[32], a1[16], a2[16];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '\0' || line[0] == '\n') continue;
+        if (sscanf(line, "%31s %63s %31s %31s %15s %15s",
+                   chr, snpid, cm, bp, a1, a2) < 6) continue;
+        a1s[i] = malloc(strlen(a1) + 1);
+        if (!a1s[i]) {
+            for (uint32_t j = 0; j < i; j++) free(a1s[j]);
+            free(a1s); fclose(f); return NULL;
+        }
+        strcpy(a1s[i], a1);
+        i++;
+    }
+    fclose(f);
+
+    *snp_ct_out = i;
+    fprintf(stderr, "Read %u SNPs from %s\n", i, bim_fname);
+    return a1s;
+}
+
+/* ------------------------------------------------------------------ */
+/* Read a frequency file -- returns per-SNP frequencies and the allele */
+/* name for which the frequency was reported.                           */
+/*                                                                      */
+/* Format is auto-detected from the header:                            */
+/*   .frq  (plink1.9): CHR SNP A1 A2 MAF NCHROBS                       */
+/*     header does NOT start with '#'; the frequency column is MAF     */
+/*     and the allele string stored in *alleles_out[k] is A1.           */
+/*   .afreq (plink2):  #CHROM ID REF ALT1 ALT1_FREQ OBS_CT            */
+/*     header starts with '#'; the frequency column is ALT1_FREQ       */
+/*     and the allele string stored in *alleles_out[k] is ALT1.         */
+/*                                                                      */
+/* The caller should compare *alleles_out[k] with bim A1 and flip      */
+/* (1-p) for SNPs where they differ; see check_and_flip_freqs().       */
+/* ------------------------------------------------------------------ */
+static double* read_freq_file(const char* freq_fname,
+                               char***     alleles_out,
+                               uint32_t*   snp_ct_out)
+{
+    FILE* f = fopen(freq_fname, "r");
+    if (!f) { perror(freq_fname); return NULL; }
 
     char line[1024];
-    if (!fgets(line, sizeof(line), f)) { fclose(f); return NULL; }  /* skip header */
+    if (!fgets(line, sizeof(line), f)) {
+        fprintf(stderr, "Error: %s appears empty (no header)\n", freq_fname);
+        fclose(f);
+        return NULL;
+    }
 
+    /* plink2 .afreq header starts with '#'; plink1.9 .frq does not */
+    int is_afreq = (line[0] == '#');
+
+    /* count data lines */
     uint32_t n = 0;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] != '\0' && line[0] != '\n') n++;
     }
     rewind(f);
-    fgets(line, sizeof(line), f);  /* skip header again */
+    if (!fgets(line, sizeof(line), f)) { fclose(f); return NULL; } /* skip header */
 
-    double* freqs = malloc(n * sizeof(double));
-    if (!freqs) { fclose(f); return NULL; }
+    double* freqs   = malloc(n * sizeof(double));
+    char**  alleles = malloc(n * sizeof(char*));
+    if (!freqs || !alleles) {
+        free(freqs); free(alleles); fclose(f); return NULL;
+    }
 
     uint32_t i = 0;
-    char chr[32], snpid[64], a1[8], a2[8];
-    double maf;
-    int nchrobs;
-    while (fscanf(f, "%31s %63s %7s %7s %lf %d",
-                  chr, snpid, a1, a2, &maf, &nchrobs) == 6) {
-        freqs[i++] = maf;
+    char col1[32], col2[64], a1_col[16], a2_col[16];
+    double freq;
+    int    obs;
+
+    while (i < n &&
+           fscanf(f, "%31s %63s %15s %15s %lf %d",
+                  col1, col2, a1_col, a2_col, &freq, &obs) == 6) {
+        freqs[i] = freq;
+        /* .afreq: col3=REF col4=ALT1; frequency is for ALT1 (a2_col) */
+        /* .frq:   col3=A1  col4=A2;   frequency is for A1   (a1_col) */
+        const char* counted = is_afreq ? a2_col : a1_col;
+        alleles[i] = malloc(strlen(counted) + 1);
+        if (!alleles[i]) {
+            for (uint32_t j = 0; j < i; j++) free(alleles[j]);
+            free(alleles); free(freqs); fclose(f); return NULL;
+        }
+        strcpy(alleles[i], counted);
+        i++;
     }
     fclose(f);
 
-    *snp_ct_out = i;
-    fprintf(stderr, "Read %u SNPs from %s\n", i, frq_fname);
+    fprintf(stderr, "Read %u SNPs from %s (%s format)\n",
+            i, freq_fname, is_afreq ? "plink2 .afreq" : "plink1.9 .frq");
+    *alleles_out = alleles;
+    *snp_ct_out  = i;
     return freqs;
+}
+
+/* ------------------------------------------------------------------ */
+/* check_and_flip_freqs -- compare frequency-file alleles against bim  */
+/* A1 and flip (p -> 1-p) for any SNP where they differ.              */
+/*                                                                      */
+/* The .bed encodes x = 0/1/2 copies of bim_A1.  The GRM formula      */
+/* needs p = freq(bim_A1).  If the frequency file reported freq for    */
+/* bim_A2 instead, p must be flipped so the centering is correct.      */
+/* ------------------------------------------------------------------ */
+static void check_and_flip_freqs(double*   freqs,
+                                  char**    freq_alleles,
+                                  char**    bim_a1,
+                                  uint32_t  snp_ct)
+{
+    uint32_t n_flipped = 0;
+    for (uint32_t k = 0; k < snp_ct; k++) {
+        if (strcmp(freq_alleles[k], bim_a1[k]) != 0) {
+            freqs[k] = 1.0 - freqs[k];
+            n_flipped++;
+        }
+    }
+    if (n_flipped > 0)
+        fprintf(stderr, "Flipped allele coding for %u / %u SNPs\n",
+                n_flipped, snp_ct);
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,8 +219,10 @@ double* read_frq(const char* frq_fname, uint32_t* snp_ct_out)
 int main(int argc, char** argv)
 {
     if (argc < 4) {
-        fprintf(stderr, "usage: test_grm <bfile> <pair_file> <out>\n");
-        fprintf(stderr, "  expects <bfile>.fam, <bfile>.bed, <bfile>.frq\n");
+        fprintf(stderr, "usage: grm_pairs <bfile> <pair_file> <out>\n");
+        fprintf(stderr,
+                "  expects <bfile>.bed, <bfile>.bim, <bfile>.fam and\n"
+                "          <bfile>.afreq (plink2) or <bfile>.frq (plink1.9)\n");
         return 1;
     }
 
@@ -127,10 +231,13 @@ int main(int argc, char** argv)
     const char* out_fname = argv[3];
 
     /* build file paths from bfile prefix */
-    char bed_fname[512], fam_fname[512], frq_fname[512];
-    snprintf(bed_fname, sizeof(bed_fname), "%s.bed", bfile);
-    snprintf(fam_fname, sizeof(fam_fname), "%s.fam", bfile);
-    snprintf(frq_fname, sizeof(frq_fname), "%s.frq", bfile);
+    char bed_fname[512], fam_fname[512], bim_fname[512];
+    char afreq_fname[512], frq_fname[512];
+    snprintf(bed_fname,   sizeof(bed_fname),   "%s.bed",   bfile);
+    snprintf(fam_fname,   sizeof(fam_fname),   "%s.fam",   bfile);
+    snprintf(bim_fname,   sizeof(bim_fname),   "%s.bim",   bfile);
+    snprintf(afreq_fname, sizeof(afreq_fname), "%s.afreq", bfile);
+    snprintf(frq_fname,   sizeof(frq_fname),   "%s.frq",   bfile);
 
     /* read sample IDs from .fam */
     uint32_t sample_ct = 0;
@@ -140,13 +247,54 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    /* read allele frequencies from .frq */
-    uint32_t snp_ct = 0;
-    double* allele_freqs = read_frq(frq_fname, &snp_ct);
+    /* auto-detect frequency file: .afreq (plink2) takes precedence over .frq */
+    const char* freq_fname = NULL;
+    {
+        FILE* probe = fopen(afreq_fname, "r");
+        if (probe) { fclose(probe); freq_fname = afreq_fname; }
+        else        {               freq_fname = frq_fname;   }
+    }
+
+    uint32_t snp_ct       = 0;
+    char**   freq_alleles = NULL;
+    double*  allele_freqs = read_freq_file(freq_fname, &freq_alleles, &snp_ct);
     if (!allele_freqs || snp_ct == 0) {
-        fprintf(stderr, "Error reading %s\n", frq_fname);
+        fprintf(stderr, "Error reading frequency file %s\n", freq_fname);
+        for (uint32_t i = 0; i < sample_ct; i++) free(sample_ids[i]);
+        free(sample_ids);
         return 1;
     }
+
+    /* read .bim A1 alleles for the allele-flip check */
+    uint32_t bim_snp_ct = 0;
+    char**   bim_a1     = read_bim_a1(bim_fname, &bim_snp_ct);
+    if (!bim_a1 || bim_snp_ct != snp_ct) {
+        fprintf(stderr,
+                "Error reading %s or SNP count mismatch "
+                "(%u in .bim vs %u in freq file)\n",
+                bim_fname, bim_snp_ct, snp_ct);
+        for (uint32_t i = 0; i < sample_ct; i++) free(sample_ids[i]);
+        free(sample_ids);
+        for (uint32_t i = 0; i < snp_ct; i++) free(freq_alleles[i]);
+        free(freq_alleles);
+        free(allele_freqs);
+        if (bim_a1) {
+            for (uint32_t i = 0; i < bim_snp_ct; i++) free(bim_a1[i]);
+            free(bim_a1);
+        }
+        return 1;
+    }
+
+    /* flip p -> 1-p for any SNP where the frequency file's allele != bim A1 */
+    check_and_flip_freqs(allele_freqs, freq_alleles, bim_a1, snp_ct);
+
+    /* free temporary allele string arrays */
+    for (uint32_t i = 0; i < snp_ct; i++) {
+        free(freq_alleles[i]);
+        free(bim_a1[i]);
+    }
+    free(freq_alleles);
+    free(bim_a1);
 
     fprintf(stderr, "Running calc_rel_pairs: %u samples, %u SNPs\n",
             sample_ct, snp_ct);

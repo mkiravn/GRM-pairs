@@ -33,9 +33,11 @@ Four frequency-file variants are tested -- all must produce the same GRM:
     3. afreq_alt_a1   -- .afreq with ALT1 = bim_A1 (no flip needed)
     4. afreq_alt_a2   -- .afreq with ALT1 = bim_A2 (flip needed; ALT1_FREQ = 1-p)
 
-Expected GRM values (computed analytically from the genotypes and p above):
-    GRM(s0, s1) = -29/42  ≈ -0.6904762
-    GRM(s0, s2) = -7/9    ≈ -0.7777778
+Expected GRM values (computed analytically from the genotypes and p above,
+using w_ik = (2 - x_ik - 2*p_k) / sqrt(2*p_k*(1-p_k)) where x_ik is the
+.bed-decoded value, i.e. 0=HOM_A1, 1=HET, 2=HOM_A2):
+    GRM(s0, s1) = -1/3   ≈ -0.33333333
+    GRM(s0, s2) = -1/2   = -0.50000000
 """
 
 import os
@@ -55,8 +57,8 @@ BINARY    = os.path.join(REPO_ROOT, "grm_pairs", "grm_pairs")
 # Expected GRM values (exact fractions → floats)
 # ---------------------------------------------------------------------------
 EXPECTED = {
-    ("s0", "s1"): -29.0 / 42.0,   # ≈ -0.6904762
-    ("s0", "s2"): -7.0  / 9.0,    # ≈ -0.7777778
+    ("s0", "s1"): -1.0 / 3.0,   # ≈ -0.33333
+    ("s0", "s2"): -1.0 / 2.0,   # = -0.5
 }
 TOLERANCE = 1e-6
 

@@ -215,7 +215,7 @@ int calc_rel_pairs(const char*  bed_fname,
             if (!needed[i] || geno[i] == MISSING_GENO) {
                 w[i] = NAN;
             } else {
-                w[i] = (geno[i] - 2.0 * p) / denom;
+                w[i] = (2 - geno[i] - 2.0 * p) / denom;
             }
         }
 

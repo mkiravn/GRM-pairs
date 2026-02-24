@@ -1,6 +1,5 @@
-IID	height
-sample1	175.2
-sample2	182.1
-sample3	168.5
-sample4	165.0
-sample5	190.3
+IID	pheno
+indiv1	2.5
+indiv2	3.0
+indiv3	1.8
+indiv4	2.2

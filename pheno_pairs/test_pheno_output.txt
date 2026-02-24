@@ -1,0 +1,4 @@
+IID1	IID2	height.crossprod	weight.crossprod	bmi.crossprod
+indiv1	indiv2	28183.7	4808.7	604.91
+indiv1	indiv3	29837.5	5265	590.45
+indiv2	indiv4	26910.8	4130.55	569.77

@@ -221,7 +221,7 @@ static int process_pairs(const char* pair_fname,
     /* Write header to output file */
     fprintf(out_f, "IID1\tIID2");
     for (uint32_t p = 0; p < n_phenos; p++) {
-        fprintf(out_f, "\tcrossproduct_%s", pheno_names[p]);
+        fprintf(out_f, "\t%s.crossprod", pheno_names[p]);
     }
     fprintf(out_f, "\n");
 
@@ -295,7 +295,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "  <pheno_file> -- phenotype file (IID pheno1 pheno2 ...)\n");
         fprintf(stderr, "\n");
         fprintf(stderr, "Output:\n");
-        fprintf(stderr, "  <out_file>   -- IID1 IID2 crossproduct_<pheno_names>\n");
+        fprintf(stderr, "  <out_file>   -- IID1 IID2 <pheno_names>.crossprod\n");
         return 1;
     }
 

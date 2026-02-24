@@ -1,0 +1,13 @@
+IID	pheno
+indiv1	2.5
+indiv2	3.0
+indiv3	1.8
+indiv4	2.2
+indiv5	2.8
+indiv6	3.2
+indiv7	2.1
+indiv8	3.5
+indiv9	2.6
+indiv10	2.9
+indiv11	2.4
+indiv12	3.1

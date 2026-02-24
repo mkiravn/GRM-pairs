@@ -151,7 +151,8 @@ static pair_data_t* read_grm_file(const char* grm_fname, uint32_t* n_pairs_out)
 
 /* Join with phenotype cross-products */
 static int join_pheno_data(pair_data_t* pairs, uint32_t n_pairs, 
-                          const char* pheno_fname, uint32_t* n_phenos_out)
+                          const char* pheno_fname, uint32_t* n_phenos_out,
+                          char*** pheno_names_out)
 {
     FILE* f = fopen(pheno_fname, "r");
     if (!f) { 
@@ -161,6 +162,7 @@ static int join_pheno_data(pair_data_t* pairs, uint32_t n_pairs,
 
     char line[MAX_LINE];
     uint32_t n_phenos = 0;
+    char** pheno_names = NULL;
     
     /* Read header to count phenotype columns */
     if (!fgets(line, sizeof(line), f)) {
@@ -185,6 +187,38 @@ static int join_pheno_data(pair_data_t* pairs, uint32_t n_pairs,
     
     n_phenos -= 2; /* Subtract IID1 and IID2 columns */
     *n_phenos_out = n_phenos;
+    
+    /* Extract phenotype column names */
+    pheno_names = malloc(n_phenos * sizeof(char*));
+    if (!pheno_names) {
+        fclose(f);
+        return 1;
+    }
+    
+    strcpy(line_copy, line);
+    token = strtok(line_copy, " \t\n\r"); /* Skip IID1 */
+    token = strtok(NULL, " \t\n\r"); /* Skip IID2 */
+    
+    for (uint32_t i = 0; i < n_phenos; i++) {
+        token = strtok(NULL, " \t\n\r");
+        if (token) {
+            pheno_names[i] = malloc(strlen(token) + 1);
+            if (!pheno_names[i]) {
+                for (uint32_t j = 0; j < i; j++) free(pheno_names[j]);
+                free(pheno_names);
+                fclose(f);
+                return 1;
+            }
+            strcpy(pheno_names[i], token);
+        } else {
+            /* Fallback name */
+            char default_name[32];
+            snprintf(default_name, sizeof(default_name), "pheno%u", i+1);
+            pheno_names[i] = malloc(strlen(default_name) + 1);
+            strcpy(pheno_names[i], default_name);
+        }
+    }
+    *pheno_names_out = pheno_names;
     
     /* Allocate phenotype arrays for all pairs */
     for (uint32_t i = 0; i < n_pairs; i++) {
@@ -247,7 +281,7 @@ static int join_pheno_data(pair_data_t* pairs, uint32_t n_pairs,
 
 /* Perform binned analysis */
 static int binned_analysis(const pair_data_t* pairs, uint32_t n_pairs, uint32_t n_phenos,
-                          const char* out_fname)
+                          char** pheno_names, const char* out_fname)
 {
     /* Initialize bins */
     int n_bins = (int)(2.0 / BIN_WIDTH) + 1; /* From -1.0 to 1.0 */
@@ -312,7 +346,7 @@ static int binned_analysis(const pair_data_t* pairs, uint32_t n_pairs, uint32_t 
     /* Write header */
     fprintf(f, "grm_bin");
     for (uint32_t p = 0; p < n_phenos; p++) {
-        fprintf(f, "\tpheno%u_mean\tpheno%u_n\tpheno%u_se", p+1, p+1, p+1);
+        fprintf(f, "\t%s_mean\t%s_n\t%s_se", pheno_names[p], pheno_names[p], pheno_names[p]);
     }
     fprintf(f, "\n");
     
@@ -383,7 +417,8 @@ int main(int argc, char* argv[])
     
     /* Join with phenotype data */
     uint32_t n_phenos;
-    if (join_pheno_data(pairs, n_pairs, pheno_fname, &n_phenos)) {
+    char** pheno_names;
+    if (join_pheno_data(pairs, n_pairs, pheno_fname, &n_phenos, &pheno_names)) {
         for (uint32_t i = 0; i < n_pairs; i++) {
             free(pairs[i].iid1);
             free(pairs[i].iid2);
@@ -394,13 +429,17 @@ int main(int argc, char* argv[])
     }
     
     /* Perform binned analysis */
-    if (binned_analysis(pairs, n_pairs, n_phenos, out_fname)) {
+    if (binned_analysis(pairs, n_pairs, n_phenos, pheno_names, out_fname)) {
         for (uint32_t i = 0; i < n_pairs; i++) {
             free(pairs[i].iid1);
             free(pairs[i].iid2);
             free(pairs[i].pheno_values);
         }
         free(pairs);
+        for (uint32_t i = 0; i < n_phenos; i++) {
+            free(pheno_names[i]);
+        }
+        free(pheno_names);
         return 1;
     }
     
@@ -413,6 +452,11 @@ int main(int argc, char* argv[])
         free(pairs[i].pheno_values);
     }
     free(pairs);
+    
+    for (uint32_t i = 0; i < n_phenos; i++) {
+        free(pheno_names[i]);
+    }
+    free(pheno_names);
     
     return 0;
 }

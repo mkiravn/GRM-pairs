@@ -1,0 +1,13 @@
+IID	normalized_residual
+indiv1	0.653676
+indiv2	0.872465
+indiv3	-1.564508
+indiv4	-1.428880
+indiv5	0.530014
+indiv6	-0.444412
+indiv7	0.522718
+indiv8	-0.026164
+indiv9	0.812454
+indiv10	-0.344282
+indiv11	-0.954354
+indiv12	1.371273

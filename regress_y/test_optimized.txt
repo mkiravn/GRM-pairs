@@ -1,0 +1,6 @@
+IID	normalized_residual
+sample1	0.871711
+sample2	0.707107
+sample3	-1.091668
+sample4	-0.707107
+sample5	0.219957

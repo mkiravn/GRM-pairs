@@ -1,0 +1,5 @@
+sample3	15.2
+sample1	10.5
+sample5	8.9
+sample2	12.1
+sample4	7.3

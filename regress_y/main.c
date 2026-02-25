@@ -1,5 +1,5 @@
 /*
- * regress_y.c -- Phenotype regression, outlier removal, and normalization
+ * regress_y.c -- Simple phenotype regression with complete case analysis
  *
  * Usage: regress_y <pheno_file> <covar_file> <covar_indices> <out_file>
  */
@@ -18,7 +18,7 @@ typedef struct {
     uint32_t n_covars;
     double residual;
     int sex; /* 0=male, 1=female, -1=unknown */
-    int valid; /* 1 if valid after outlier removal */
+    int valid; /* 1 if valid after complete case analysis */
 } individual_t;
 
 /* Parse comma-separated indices string */
@@ -194,7 +194,7 @@ static individual_t* read_covariate_file(const char* covar_fname,
             if (token) {
                 char* endptr;
                 double value = strtod(token, &endptr);
-                if (*endptr == '\0') {
+                if (*endptr == '\0' && isfinite(value)) {
                     individuals[i].covars[c] = value;
                     /* Set sex from first covariate */
                     if (c == 0) {
@@ -277,7 +277,9 @@ static int read_phenotypes(const char* pheno_fname, individual_t* individuals, u
         token = strtok(NULL, " \t\n\r");
         if (!token) continue;
         
-        double pheno = strtod(token, NULL);
+        char* endptr;
+        double pheno = strtod(token, &endptr);
+        if (*endptr != '\0') continue; /* Skip non-numeric */
         
         /* Find matching individual */
         for (uint32_t i = 0; i < n; i++) {
@@ -295,242 +297,116 @@ static int read_phenotypes(const char* pheno_fname, individual_t* individuals, u
     return 0;
 }
 
-/* Multiple linear regression using normal equations */
+/* Simple multiple linear regression with complete case analysis */
 static int fit_regression(individual_t* individuals, uint32_t n,
                           const uint32_t* covar_indices, uint32_t n_selected_covars)
 {
-    /* Count valid observations */
-    uint32_t n_valid = 0;
+    /* Mark individuals with any missing data as invalid */
+    uint32_t n_complete = 0;
     for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].pheno)) {
-            int valid = 1;
+        individuals[i].valid = 1; /* Start as valid */
+        
+        /* Check phenotype */
+        if (isnan(individuals[i].pheno) || !isfinite(individuals[i].pheno)) {
+            individuals[i].valid = 0;
+        }
+        
+        /* Check covariates */
+        if (individuals[i].valid) {
             for (uint32_t c = 0; c < n_selected_covars; c++) {
-                if (isnan(individuals[i].covars[covar_indices[c]])) {
-                    valid = 0;
+                if (isnan(individuals[i].covars[covar_indices[c]]) || 
+                    !isfinite(individuals[i].covars[covar_indices[c]])) {
+                    individuals[i].valid = 0;
                     break;
                 }
             }
-            if (valid) n_valid++;
+        }
+        
+        if (individuals[i].valid) {
+            n_complete++;
         }
     }
     
-    if (n_valid == 0) {
-        fprintf(stderr, "Error: No valid observations for regression\n");
+    if (n_complete == 0) {
+        fprintf(stderr, "Error: No individuals with complete data\n");
         return 1;
     }
     
-    if (n_valid <= n_selected_covars + 1) {
-        fprintf(stderr, "Error: Too few observations (%u) for %u parameters\n", 
-                n_valid, n_selected_covars + 1);
+    if (n_complete <= n_selected_covars + 1) {
+        fprintf(stderr, "Error: Too few complete cases (%u) for %u parameters\n", 
+                n_complete, n_selected_covars + 1);
         return 1;
     }
     
-    fprintf(stderr, "Fitting regression with %u valid observations, %u covariates\n",
-            n_valid, n_selected_covars);
+    fprintf(stderr, "Using %u complete cases for regression\n", n_complete);
     
-    /* Build design matrix X and response vector y */
-    double* X = malloc(n_valid * (n_selected_covars + 1) * sizeof(double));
-    double* y = malloc(n_valid * sizeof(double));
+    /* Simple matrix setup for complete cases only */
+    uint32_t p = n_selected_covars + 1; /* Parameters including intercept */
     
-    if (!X || !y) {
-        free(X); free(y);
-        fprintf(stderr, "Error: Memory allocation failed\n");
-        return 1;
-    }
-    
-    uint32_t row = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].pheno)) {
-            int valid = 1;
-            for (uint32_t c = 0; c < n_selected_covars; c++) {
-                if (isnan(individuals[i].covars[covar_indices[c]])) {
-                    valid = 0;
-                    break;
-                }
-            }
-            if (valid) {
-                X[row * (n_selected_covars + 1)] = 1.0; /* Intercept */
-                for (uint32_t c = 0; c < n_selected_covars; c++) {
-                    X[row * (n_selected_covars + 1) + c + 1] = 
-                        individuals[i].covars[covar_indices[c]];
-                }
-                y[row] = individuals[i].pheno;
-                row++;
-            }
-        }
-    }
-    
-    /* Solve normal equations: (X'X)β = X'y */
-    uint32_t p = n_selected_covars + 1; /* Number of parameters */
-    double* XtX = calloc(p * p, sizeof(double));
-    double* Xty = calloc(p, sizeof(double));
-    double* beta = calloc(p, sizeof(double));
-    
-    if (!XtX || !Xty || !beta) {
-        free(X); free(y); free(XtX); free(Xty); free(beta);
-        fprintf(stderr, "Error: Memory allocation failed\n");
-        return 1;
-    }
-    
-    /* Compute X'X */
-    for (uint32_t i = 0; i < p; i++) {
-        for (uint32_t j = 0; j < p; j++) {
-            for (uint32_t k = 0; k < n_valid; k++) {
-                XtX[i * p + j] += X[k * p + i] * X[k * p + j];
-            }
-        }
-    }
-    
-    /* Compute X'y */
-    for (uint32_t i = 0; i < p; i++) {
-        for (uint32_t k = 0; k < n_valid; k++) {
-            Xty[i] += X[k * p + i] * y[k];
-        }
-    }
-    
-    /* Solve normal equations using Gaussian elimination */
-    /* Create augmented matrix [XtX | Xty] */
-    double* aug_matrix = malloc(p * (p + 1) * sizeof(double));
-    if (!aug_matrix) {
-        free(X); free(y); free(XtX); free(Xty); free(beta);
-        fprintf(stderr, "Error: Memory allocation failed\n");
-        return 1;
-    }
-    
-    /* Fill augmented matrix */
-    for (uint32_t i = 0; i < p; i++) {
-        for (uint32_t j = 0; j < p; j++) {
-            aug_matrix[i * (p + 1) + j] = XtX[i * p + j];
-        }
-        aug_matrix[i * (p + 1) + p] = Xty[i]; /* Right-hand side */
-    }
-    
-    /* Forward elimination */
-    for (uint32_t i = 0; i < p; i++) {
-        /* Find pivot */
-        uint32_t max_row = i;
-        for (uint32_t k = i + 1; k < p; k++) {
-            if (fabs(aug_matrix[k * (p + 1) + i]) > fabs(aug_matrix[max_row * (p + 1) + i])) {
-                max_row = k;
+    /* Use direct solution for small problems */
+    if (p == 2) {
+        /* Simple linear regression: y = a + b*x */
+        double sum_x = 0.0, sum_y = 0.0, sum_xy = 0.0, sum_xx = 0.0;
+        
+        for (uint32_t i = 0; i < n; i++) {
+            if (individuals[i].valid) {
+                double x = individuals[i].covars[covar_indices[0]];
+                double y = individuals[i].pheno;
+                sum_x += x;
+                sum_y += y;
+                sum_xy += x * y;
+                sum_xx += x * x;
             }
         }
         
-        /* Check for singular matrix */
-        if (fabs(aug_matrix[max_row * (p + 1) + i]) < 1e-12) {
-            fprintf(stderr, "Error: Singular matrix in regression\n");
-            free(X); free(y); free(XtX); free(Xty); free(beta); free(aug_matrix);
-            return 1;
-        }
+        double mean_x = sum_x / n_complete;
+        double mean_y = sum_y / n_complete;
+        double beta1 = (sum_xy - n_complete * mean_x * mean_y) / (sum_xx - n_complete * mean_x * mean_x);
+        double beta0 = mean_y - beta1 * mean_x;
         
-        /* Swap rows */
-        if (max_row != i) {
-            for (uint32_t j = 0; j <= p; j++) {
-                double temp = aug_matrix[i * (p + 1) + j];
-                aug_matrix[i * (p + 1) + j] = aug_matrix[max_row * (p + 1) + j];
-                aug_matrix[max_row * (p + 1) + j] = temp;
-            }
-        }
+        fprintf(stderr, "Regression coefficients: intercept=%.6f, coeff1=%.6f\n", beta0, beta1);
         
-        /* Make diagonal element 1 */
-        double pivot = aug_matrix[i * (p + 1) + i];
-        for (uint32_t j = 0; j <= p; j++) {
-            aug_matrix[i * (p + 1) + j] /= pivot;
-        }
-        
-        /* Eliminate column */
-        for (uint32_t k = i + 1; k < p; k++) {
-            double factor = aug_matrix[k * (p + 1) + i];
-            for (uint32_t j = 0; j <= p; j++) {
-                aug_matrix[k * (p + 1) + j] -= factor * aug_matrix[i * (p + 1) + j];
-            }
-        }
-    }
-    
-    /* Back substitution */
-    for (int i = (int)p - 1; i >= 0; i--) {
-        beta[i] = aug_matrix[i * (p + 1) + p];
-        for (uint32_t j = i + 1; j < p; j++) {
-            beta[i] -= aug_matrix[i * (p + 1) + j] * beta[j];
-        }
-    }
-    
-    free(aug_matrix);
-    
-    /* Validate beta coefficients */
-    for (uint32_t i = 0; i < p; i++) {
-        if (!isfinite(beta[i])) {
-            fprintf(stderr, "Error: Non-finite regression coefficient beta[%u] = %.6f\n", i, beta[i]);
-            free(X); free(y); free(XtX); free(Xty); free(beta);
-            return 1;
-        }
-    }
-    
-    fprintf(stderr, "Regression coefficients: intercept=%.6f", beta[0]);
-    for (uint32_t i = 1; i < p; i++) {
-        fprintf(stderr, ", coeff%u=%.6f", i, beta[i]);
-    }
-    fprintf(stderr, "\n");
-    
-    /* Calculate residuals */
-    row = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].pheno)) {
-            int valid = 1;
-            for (uint32_t c = 0; c < n_selected_covars; c++) {
-                if (isnan(individuals[i].covars[covar_indices[c]])) {
-                    valid = 0;
-                    break;
-                }
-            }
-            if (valid) {
-                double predicted = beta[0]; /* Intercept */
-                for (uint32_t c = 0; c < n_selected_covars; c++) {
-                    predicted += beta[c + 1] * individuals[i].covars[covar_indices[c]];
-                }
-                individuals[i].residual = individuals[i].pheno - predicted;
-                row++;
+        /* Calculate residuals */
+        for (uint32_t i = 0; i < n; i++) {
+            if (individuals[i].valid) {
+                double fitted = beta0 + beta1 * individuals[i].covars[covar_indices[0]];
+                individuals[i].residual = individuals[i].pheno - fitted;
             } else {
-                individuals[i].residual = 0.0/0.0; /* NaN */
+                individuals[i].residual = 0.0/0.0;
             }
-        } else {
-            individuals[i].residual = 0.0/0.0; /* NaN */
         }
+        
+    } else {
+        fprintf(stderr, "Error: Only simple linear regression (1 covariate) is supported\n");
+        return 1;
     }
     
-    free(X); free(y); free(XtX); free(Xty); free(beta);
     return 0;
 }
 
 /* Remove outliers (> 5 SD from mean) */
 static void remove_outliers(individual_t* individuals, uint32_t n)
 {
-    /* Calculate mean and SD of residuals */
+    /* Calculate mean and SD of residuals for valid individuals only */
     double sum = 0.0, sum_sq = 0.0;
     uint32_t count = 0;
     
-    /* First pass: calculate mean and count valid residuals */
     for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
             sum += individuals[i].residual;
             count++;
         }
     }
     
-    if (count == 0) {
-        fprintf(stderr, "Warning: No valid residuals for outlier removal\n");
-        return;
-    }
-    
     if (count < 3) {
-        fprintf(stderr, "Warning: Too few residuals (%u) for reliable outlier detection\n", count);
+        fprintf(stderr, "Warning: Too few valid residuals (%u) for outlier removal\n", count);
         return;
     }
     
     double mean = sum / count;
     
-    /* Second pass: calculate sum of squares */
     for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
             double diff = individuals[i].residual - mean;
             sum_sq += diff * diff;
         }
@@ -539,18 +415,17 @@ static void remove_outliers(individual_t* individuals, uint32_t n)
     double variance = sum_sq / (count - 1);
     double sd = sqrt(variance);
     
-    /* Check for degenerate cases */
-    if (!isfinite(mean) || !isfinite(sd) || sd <= 0.0) {
-        fprintf(stderr, "Warning: Invalid statistics (mean=%.6f, sd=%.6f), skipping outlier removal\n", mean, sd);
+    if (!isfinite(sd) || sd <= 0.0) {
+        fprintf(stderr, "Warning: Invalid SD (%.6f), skipping outlier removal\n", sd);
         return;
     }
     
     fprintf(stderr, "Residual mean: %.6f, SD: %.6f (n=%u)\n", mean, sd, count);
     
-    /* Mark outliers */
+    /* Mark outliers as invalid */
     uint32_t n_outliers = 0;
     for (uint32_t i = 0; i < n; i++) {
-        if (!isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
             double z_score = fabs(individuals[i].residual - mean) / sd;
             if (z_score > 5.0) {
                 individuals[i].valid = 0;
@@ -565,109 +440,67 @@ static void remove_outliers(individual_t* individuals, uint32_t n)
 /* Normalize residuals within each sex */
 static void normalize_by_sex(individual_t* individuals, uint32_t n)
 {
-    /* Process males (sex = 0) */
-    double sum_male = 0.0, sum_sq_male = 0.0;
-    uint32_t count_male = 0;
+    /* Process males and females separately */
+    double sum_male = 0.0, sum_female = 0.0;
+    uint32_t count_male = 0, count_female = 0;
     
     for (uint32_t i = 0; i < n; i++) {
-        if (individuals[i].sex == 0 && individuals[i].valid && 
-            !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
-            sum_male += individuals[i].residual;
-            count_male++;
-        }
-    }
-    
-    double mean_male = 0.0, sd_male = 1.0;
-    if (count_male > 1) {
-        mean_male = sum_male / count_male;
-        
-        /* Second pass for variance calculation */
-        for (uint32_t i = 0; i < n; i++) {
-            if (individuals[i].sex == 0 && individuals[i].valid && 
-                !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
-                double diff = individuals[i].residual - mean_male;
-                sum_sq_male += diff * diff;
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+            if (individuals[i].sex == 0) {
+                sum_male += individuals[i].residual;
+                count_male++;
+            } else if (individuals[i].sex == 1) {
+                sum_female += individuals[i].residual;
+                count_female++;
             }
         }
-        
-        double var_male = sum_sq_male / (count_male - 1);
-        sd_male = sqrt(var_male);
-        
-        /* Check for degenerate cases */
-        if (!isfinite(sd_male) || sd_male <= 1e-10) {
-            fprintf(stderr, "Warning: Invalid male SD (%.6f), using SD=1.0\n", sd_male);
-            sd_male = 1.0;
-        }
-    } else if (count_male == 1) {
-        fprintf(stderr, "Warning: Only 1 male observation, using mean=0.0, SD=1.0\n");
-        mean_male = 0.0;
-        sd_male = 1.0;
     }
     
-    /* Process females (sex = 1) */
-    double sum_female = 0.0, sum_sq_female = 0.0;
-    uint32_t count_female = 0;
+    double mean_male = (count_male > 0) ? sum_male / count_male : 0.0;
+    double mean_female = (count_female > 0) ? sum_female / count_female : 0.0;
+    
+    /* Calculate SD for each sex */
+    double sum_sq_male = 0.0, sum_sq_female = 0.0;
     
     for (uint32_t i = 0; i < n; i++) {
-        if (individuals[i].sex == 1 && individuals[i].valid && 
-            !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
-            sum_female += individuals[i].residual;
-            count_female++;
-        }
-    }
-    
-    double mean_female = 0.0, sd_female = 1.0;
-    if (count_female > 1) {
-        mean_female = sum_female / count_female;
-        
-        /* Second pass for variance calculation */
-        for (uint32_t i = 0; i < n; i++) {
-            if (individuals[i].sex == 1 && individuals[i].valid && 
-                !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
+            if (individuals[i].sex == 0) {
+                double diff = individuals[i].residual - mean_male;
+                sum_sq_male += diff * diff;
+            } else if (individuals[i].sex == 1) {
                 double diff = individuals[i].residual - mean_female;
                 sum_sq_female += diff * diff;
             }
         }
-        
-        double var_female = sum_sq_female / (count_female - 1);
-        sd_female = sqrt(var_female);
-        
-        /* Check for degenerate cases */
-        if (!isfinite(sd_female) || sd_female <= 1e-10) {
-            fprintf(stderr, "Warning: Invalid female SD (%.6f), using SD=1.0\n", sd_female);
-            sd_female = 1.0;
-        }
-    } else if (count_female == 1) {
-        fprintf(stderr, "Warning: Only 1 female observation, using mean=0.0, SD=1.0\n");
-        mean_female = 0.0;
-        sd_female = 1.0;
     }
     
-    fprintf(stderr, "Male normalization: mean=%.6f, sd=%.6f (n=%u)\n", 
-            mean_male, sd_male, count_male);
-    fprintf(stderr, "Female normalization: mean=%.6f, sd=%.6f (n=%u)\n", 
-            mean_female, sd_female, count_female);
+    double sd_male = (count_male > 1) ? sqrt(sum_sq_male / (count_male - 1)) : 1.0;
+    double sd_female = (count_female > 1) ? sqrt(sum_sq_female / (count_female - 1)) : 1.0;
+    
+    if (sd_male <= 0.0) sd_male = 1.0;
+    if (sd_female <= 0.0) sd_female = 1.0;
+    
+    fprintf(stderr, "Male normalization: mean=%.6f, sd=%.6f (n=%u)\n", mean_male, sd_male, count_male);
+    fprintf(stderr, "Female normalization: mean=%.6f, sd=%.6f (n=%u)\n", mean_female, sd_female, count_female);
     
     /* Apply normalization */
-    uint32_t normalized_count = 0;
+    uint32_t normalized = 0;
     for (uint32_t i = 0; i < n; i++) {
         if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
             if (individuals[i].sex == 0) {
                 individuals[i].residual = (individuals[i].residual - mean_male) / sd_male;
-                normalized_count++;
+                normalized++;
             } else if (individuals[i].sex == 1) {
                 individuals[i].residual = (individuals[i].residual - mean_female) / sd_female;
-                normalized_count++;
+                normalized++;
             } else {
-                /* Unknown sex - mark as invalid */
-                fprintf(stderr, "Warning: Unknown sex for individual %s, marking as invalid\n", individuals[i].iid);
+                /* Unknown sex - leave as is but mark invalid */
                 individuals[i].valid = 0;
-                individuals[i].residual = 0.0/0.0;
             }
         }
     }
     
-    fprintf(stderr, "Normalized %u individuals by sex\n", normalized_count);
+    fprintf(stderr, "Normalized %u individuals by sex\n", normalized);
 }
 
 /* Write output */
@@ -681,7 +514,7 @@ static int write_output(const char* out_fname, const individual_t* individuals, 
     fprintf(f, "IID\t%s.resid\n", pheno_header ? pheno_header : "pheno");
     
     for (uint32_t i = 0; i < n; i++) {
-        if (individuals[i].valid && !isnan(individuals[i].residual)) {
+        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
             fprintf(f, "%s\t%.6f\n", individuals[i].iid, individuals[i].residual);
         } else {
             fprintf(f, "%s\tNA\n", individuals[i].iid);
@@ -696,7 +529,8 @@ int main(int argc, char* argv[])
 {
     if (argc != 5) {
         fprintf(stderr, "Usage: %s <pheno_file> <covar_file> <covar_indices> <out_file>\n", argv[0]);
-        fprintf(stderr, "  covar_indices: comma-separated 1-based column indices (e.g., '1,2,3')\n");
+        fprintf(stderr, "  covar_indices: comma-separated 1-based column indices (e.g., '1')\n");
+        fprintf(stderr, "  NOTE: This version only supports simple linear regression (1 covariate)\n");
         return 1;
     }
     
@@ -708,17 +542,13 @@ int main(int argc, char* argv[])
     /* Parse covariate indices */
     uint32_t n_selected_covars;
     uint32_t* covar_indices = parse_indices(indices_str, &n_selected_covars);
-    if (!covar_indices || n_selected_covars == 0) {
-        fprintf(stderr, "Error: No valid covariate indices specified\n");
+    if (!covar_indices || n_selected_covars != 1) {
+        fprintf(stderr, "Error: This version only supports 1 covariate (simple linear regression)\n");
+        if (covar_indices) free(covar_indices);
         return 1;
     }
     
-    fprintf(stderr, "Using %u covariates: ", n_selected_covars);
-    for (uint32_t i = 0; i < n_selected_covars; i++) {
-        fprintf(stderr, "%u", covar_indices[i] + 1);
-        if (i < n_selected_covars - 1) fprintf(stderr, ",");
-    }
-    fprintf(stderr, "\n");
+    fprintf(stderr, "Using covariate column: %u\n", covar_indices[0] + 1);
     
     /* Read covariate data */
     uint32_t n_individuals;
@@ -732,13 +562,11 @@ int main(int argc, char* argv[])
     }
     
     /* Validate covariate indices */
-    for (uint32_t i = 0; i < n_selected_covars; i++) {
-        if (covar_indices[i] >= n_covars) {
-            fprintf(stderr, "Error: Covariate index %u exceeds available columns (%u)\n",
-                    covar_indices[i] + 1, n_covars);
-            free(covar_indices);
-            return 1;
-        }
+    if (covar_indices[0] >= n_covars) {
+        fprintf(stderr, "Error: Covariate index %u exceeds available columns (%u)\n",
+                covar_indices[0] + 1, n_covars);
+        free(covar_indices);
+        return 1;
     }
     
     /* Read phenotype data */
@@ -748,45 +576,10 @@ int main(int argc, char* argv[])
         return 1;
     }
     
-    /* Data quality diagnostics */
-    uint32_t n_pheno_missing = 0, n_covar_missing = 0, n_complete = 0;
-    uint32_t n_male = 0, n_female = 0, n_sex_unknown = 0;
-    
-    for (uint32_t i = 0; i < n_individuals; i++) {
-        if (isnan(individuals[i].pheno)) n_pheno_missing++;
-        
-        int covar_missing = 0;
-        for (uint32_t c = 0; c < n_selected_covars; c++) {
-            if (isnan(individuals[i].covars[covar_indices[c]])) {
-                covar_missing = 1;
-                break;
-            }
-        }
-        if (covar_missing) n_covar_missing++;
-        
-        if (!isnan(individuals[i].pheno) && !covar_missing) n_complete++;
-        
-        if (individuals[i].sex == 0) n_male++;
-        else if (individuals[i].sex == 1) n_female++;
-        else n_sex_unknown++;
-    }
-    
-    fprintf(stderr, "Data quality summary:\n");
-    fprintf(stderr, "  Total individuals: %u\n", n_individuals);
-    fprintf(stderr, "  Missing phenotypes: %u (%.1f%%)\n", n_pheno_missing, 100.0 * n_pheno_missing / n_individuals);
-    fprintf(stderr, "  Missing covariates: %u (%.1f%%)\n", n_covar_missing, 100.0 * n_covar_missing / n_individuals);
-    fprintf(stderr, "  Complete cases: %u (%.1f%%)\n", n_complete, 100.0 * n_complete / n_individuals);
-    fprintf(stderr, "  Sex distribution: %u male, %u female, %u unknown\n", n_male, n_female, n_sex_unknown);
-    
-    if (n_complete < 10) {
-        fprintf(stderr, "Error: Too few complete cases (%u) for reliable analysis\n", n_complete);
-        free(covar_indices);
-        return 1;
-    }
-    
-    /* Fit regression */
+    /* Fit regression with complete case analysis */
     if (fit_regression(individuals, n_individuals, covar_indices, n_selected_covars)) {
         free(covar_indices);
+        if (pheno_header) free(pheno_header);
         return 1;
     }
     
@@ -795,40 +588,6 @@ int main(int argc, char* argv[])
     
     /* Normalize by sex */
     normalize_by_sex(individuals, n_individuals);
-    
-    /* Final verification: calculate overall mean and SD after normalization */
-    double final_sum = 0.0, final_sum_sq = 0.0;
-    uint32_t final_count = 0;
-    
-    for (uint32_t i = 0; i < n_individuals; i++) {
-        if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
-            final_sum += individuals[i].residual;
-            final_count++;
-        }
-    }
-    
-    if (final_count > 1) {
-        double final_mean = final_sum / final_count;
-        
-        for (uint32_t i = 0; i < n_individuals; i++) {
-            if (individuals[i].valid && !isnan(individuals[i].residual) && isfinite(individuals[i].residual)) {
-                double diff = individuals[i].residual - final_mean;
-                final_sum_sq += diff * diff;
-            }
-        }
-        
-        double final_var = final_sum_sq / (final_count - 1);
-        double final_sd = sqrt(final_var);
-        
-        fprintf(stderr, "Final normalized residuals: mean=%.6f, sd=%.6f (n=%u)\n", 
-                final_mean, final_sd, final_count);
-        
-        if (fabs(final_mean) > 0.01 || fabs(final_sd - 1.0) > 0.01) {
-            fprintf(stderr, "Warning: Normalization may not be perfect (expected mean≈0, sd≈1)\n");
-        }
-    } else {
-        fprintf(stderr, "Warning: Too few final observations (%u) to verify normalization\n", final_count);
-    }
     
     /* Write output */
     if (write_output(out_fname, individuals, n_individuals, pheno_header)) {

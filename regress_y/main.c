@@ -9,7 +9,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
-#include "fast_linalg.h"
 
 /* Structure to store individual data */
 typedef struct {
@@ -389,38 +388,73 @@ static int fit_regression(individual_t* individuals, uint32_t n,
         }
     }
     
-    /* Fast Cholesky decomposition to solve XtX * beta = Xty */
-    /* This is much faster than Gaussian elimination: O(p³/3) vs O(p³) */
+    /* Solve normal equations using Gaussian elimination */
+    /* Create augmented matrix [XtX | Xty] */
+    double* aug_matrix = malloc(p * (p + 1) * sizeof(double));
+    if (!aug_matrix) {
+        free(X); free(y); free(XtX); free(Xty); free(beta);
+        fprintf(stderr, "Error: Memory allocation failed\n");
+        return 1;
+    }
     
-    /* Check matrix conditioning before Cholesky */
-    double trace = 0.0;
+    /* Fill augmented matrix */
     for (uint32_t i = 0; i < p; i++) {
-        trace += XtX[i * p + i];
+        for (uint32_t j = 0; j < p; j++) {
+            aug_matrix[i * (p + 1) + j] = XtX[i * p + j];
+        }
+        aug_matrix[i * (p + 1) + p] = Xty[i]; /* Right-hand side */
     }
     
-    if (trace <= 1e-12) {
-        fprintf(stderr, "Error: Design matrix is nearly singular (trace=%.2e)\n", trace);
-        free(X); free(y); free(XtX); free(Xty); free(beta);
-        return 1;
+    /* Forward elimination */
+    for (uint32_t i = 0; i < p; i++) {
+        /* Find pivot */
+        uint32_t max_row = i;
+        for (uint32_t k = i + 1; k < p; k++) {
+            if (fabs(aug_matrix[k * (p + 1) + i]) > fabs(aug_matrix[max_row * (p + 1) + i])) {
+                max_row = k;
+            }
+        }
+        
+        /* Check for singular matrix */
+        if (fabs(aug_matrix[max_row * (p + 1) + i]) < 1e-12) {
+            fprintf(stderr, "Error: Singular matrix in regression\n");
+            free(X); free(y); free(XtX); free(Xty); free(beta); free(aug_matrix);
+            return 1;
+        }
+        
+        /* Swap rows */
+        if (max_row != i) {
+            for (uint32_t j = 0; j <= p; j++) {
+                double temp = aug_matrix[i * (p + 1) + j];
+                aug_matrix[i * (p + 1) + j] = aug_matrix[max_row * (p + 1) + j];
+                aug_matrix[max_row * (p + 1) + j] = temp;
+            }
+        }
+        
+        /* Make diagonal element 1 */
+        double pivot = aug_matrix[i * (p + 1) + i];
+        for (uint32_t j = 0; j <= p; j++) {
+            aug_matrix[i * (p + 1) + j] /= pivot;
+        }
+        
+        /* Eliminate column */
+        for (uint32_t k = i + 1; k < p; k++) {
+            double factor = aug_matrix[k * (p + 1) + i];
+            for (uint32_t j = 0; j <= p; j++) {
+                aug_matrix[k * (p + 1) + j] -= factor * aug_matrix[i * (p + 1) + j];
+            }
+        }
     }
     
-    if (cholesky_decomp(XtX, p)) {
-        fprintf(stderr, "Error: Matrix not positive definite in regression\n");
-        free(X); free(y); free(XtX); free(Xty); free(beta);
-        return 1;
+    /* Back substitution */
+    for (int i = (int)p - 1; i >= 0; i--) {
+        beta[i] = aug_matrix[i * (p + 1) + p];
+        for (uint32_t j = i + 1; j < p; j++) {
+            beta[i] -= aug_matrix[i * (p + 1) + j] * beta[j];
+        }
     }
     
-    /* Solve L * temp = Xty */
-    double* temp = malloc(p * sizeof(double));
-    if (!temp) {
-        free(X); free(y); free(XtX); free(Xty); free(beta);
-        return 1;
-    }
-    forward_solve(XtX, Xty, temp, p);
-    
-    /* Solve L^T * beta = temp */
-    backward_solve(XtX, temp, beta, p);
-    free(temp);
+    free(aug_matrix);
     
     /* Validate beta coefficients */
     for (uint32_t i = 0; i < p; i++) {

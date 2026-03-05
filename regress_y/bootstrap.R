@@ -119,7 +119,7 @@ print(head(x))
 
 
 if (ncol(x) < 4) stop("GRM file must have at least 4 columns: IID1 IID2 nsnps GRM")
-colnames(x)[1:4] <- c("IID1", "IID2", "nsnps", "GRM")
+colnames(x)[1:4] <- c("IID1", "IID2",  "GRM")
 x$IID1 <- as.character(x$IID1)
 x$IID2 <- as.character(x$IID2)
 print("Range of GRM values:")

@@ -91,15 +91,19 @@ run_group <- function(df, group_label, y_col, B, alpha) {
 # -------------------------
 # Load + join data
 # -------------------------
-yy <- readr::read_delim(crossprod_file, delim = "\t", show_col_types = FALSE)
+yy <- readr::read_delim(crossprod_file, delim = "\t", show_col_types = FALSE, col_names=TRUE)
 colnames(yy) <- c("IID2", "IID1", "yy")
 yy$IID1 <- as.character(yy$IID1)
 yy$IID2 <- as.character(yy$IID2)
-yy <- yy %>%
-  filter(!is.na(yy))
-print(nrow(yy))
 print("First few rows of crossprod data:")
 print(head(yy))
+yy <- yy %>%
+  filter(!is.na(yy))
+print("Number of pairs in crossprod data after filtering NA yy:")
+print(nrow(yy))
+print("Range of yy values:")
+print(range(yy$yy, na.rm = TRUE))
+
 
 x <- readr::read_delim(
   grm_file,

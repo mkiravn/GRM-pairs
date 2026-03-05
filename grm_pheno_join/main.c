@@ -325,9 +325,44 @@ static int binned_analysis(const pair_data_t* pairs, uint32_t n_pairs, uint32_t 
         bins[b].grm_count = 0;
     }
     
-    /* Accumulate statistics */
+    /* Open pair-level TSV output (written in same pass as bin accumulation) */
+    size_t pairs_tsv_len = strlen(out_fname) + strlen(".pairs.tsv") + 1;
+    char* pairs_tsv_fname = malloc(pairs_tsv_len);
+    if (!pairs_tsv_fname) {
+        for (int b = 0; b < n_bins; b++) {
+            free(bins[b].sum_pheno);
+            free(bins[b].sum_pheno_sq);
+            free(bins[b].count);
+        }
+        free(bins);
+        return 1;
+    }
+    snprintf(pairs_tsv_fname, pairs_tsv_len, "%s.pairs.tsv", out_fname);
+
+    FILE* pairs_out = fopen(pairs_tsv_fname, "w");
+    if (!pairs_out) {
+        perror(pairs_tsv_fname);
+        free(pairs_tsv_fname);
+        for (int b = 0; b < n_bins; b++) {
+            free(bins[b].sum_pheno);
+            free(bins[b].sum_pheno_sq);
+            free(bins[b].count);
+        }
+        free(bins);
+        return 1;
+    }
+    fprintf(pairs_out, "ID1\tID2\tGRM\tcrossproduct\n");
+
+    /* Accumulate statistics and emit pair TSV */
     uint32_t total_processed = 0;
     for (uint32_t i = 0; i < n_pairs; i++) {
+        fprintf(pairs_out, "%s\t%s\t%.6f\t", pairs[i].iid1, pairs[i].iid2, pairs[i].grm_value);
+        if (pairs[i].pheno_values && pairs[i].n_phenos > 0 && isfinite(pairs[i].pheno_values[0])) {
+            fprintf(pairs_out, "%.6f\n", pairs[i].pheno_values[0]);
+        } else {
+            fprintf(pairs_out, "NA\n");
+        }
+
         if (pairs[i].grm_value < min_grm || pairs[i].grm_value > max_grm) continue;
         
         int bin_idx = (int)((pairs[i].grm_value - min_grm) / bin_width);
@@ -352,10 +387,13 @@ static int binned_analysis(const pair_data_t* pairs, uint32_t n_pairs, uint32_t 
         total_processed++;
     }
     
+    fclose(pairs_out);
+
     /* Write results */
     FILE* out = fopen(out_fname, "w");
     if (!out) {
         perror(out_fname);
+        free(pairs_tsv_fname);
         for (int b = 0; b < n_bins; b++) {
             free(bins[b].sum_pheno);
             free(bins[b].sum_pheno_sq);
@@ -405,6 +443,9 @@ static int binned_analysis(const pair_data_t* pairs, uint32_t n_pairs, uint32_t 
     }
     free(bins);
     
+    fprintf(stderr, "Pair-level TSV output written to %s\n", pairs_tsv_fname);
+    free(pairs_tsv_fname);
+
     fprintf(stderr, "Processed %u pairs into %d bins (%.3f to %.3f, width %.4f)\n", 
             total_processed, n_bins, min_grm, max_grm, bin_width);
     fprintf(stderr, "Binned analysis complete. Output written to %s\n", out_fname);
@@ -430,6 +471,7 @@ int main(int argc, char* argv[])
         fprintf(stderr, "  - Bidirectional pair matching (IID1,IID2 matches IID2,IID1)\n");
         fprintf(stderr, "  - Configurable binning parameters\n");
         fprintf(stderr, "  - Outputs mean GRM values per bin\n");
+        fprintf(stderr, "  - Also writes pair-level TSV: <out_file>.pairs.tsv (ID1 ID2 GRM crossproduct)\n");
         return 1;
     }
     
@@ -469,7 +511,7 @@ int main(int argc, char* argv[])
         free(pairs);
         return 1;
     }
-    
+
     /* Perform binned analysis */
     int result = binned_analysis(pairs, n_pairs, n_phenos, pheno_names, out_fname,
                                 bin_width, min_grm, max_grm);

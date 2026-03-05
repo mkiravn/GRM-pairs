@@ -92,7 +92,7 @@ run_group <- function(df, group_label, y_col, B, alpha) {
 # Load + join data
 # -------------------------
 yy <- readr::read_delim(crossprod_file, delim = "\t", show_col_types = FALSE, col_names=TRUE)
-colnames(yy) <- c("IID2", "IID1","ns", "yy")
+colnames(yy) <- c("IID2", "IID1","yy")
 yy %>% filter(as.numeric(IID1)>0, as.numeric(IID2)>0) -> yy
 yy$IID1 <- as.character(yy$IID1)
 yy$IID2 <- as.character(yy$IID2)

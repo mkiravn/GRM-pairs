@@ -92,7 +92,8 @@ run_group <- function(df, group_label, y_col, B, alpha) {
 # Load + join data
 # -------------------------
 yy <- readr::read_delim(crossprod_file, delim = "\t", show_col_types = FALSE, col_names=TRUE)
-colnames(yy) <- c("IID2", "IID1", "yy")
+colnames(yy) <- c("IID2", "IID1","ns", "yy")
+yy %>% filter(as.numeric(IID1)>0, as.numeric(IID2)>0) -> yy
 yy$IID1 <- as.character(yy$IID1)
 yy$IID2 <- as.character(yy$IID2)
 print("First few rows of crossprod data:")
@@ -191,7 +192,13 @@ message(sprintf("[INFO] Wrote: %s", out_plot))
 xyy %>%
     group_by(GRM_bin = make_bins(GRM, seq(-0.05, 0.70, by = 0.005))) %>%
     filter(!is.na(GRM_bin)) %>%
-    reframe(x = mean(GRM), y = mean(.data[[y_col]]), n = n()) -> binned_data
+    reframe(x = mean(GRM), y = mean(.data[[y_col]]), n = n(), CI_low = quantile(.data[[y_col]], 0.025, na.rm = TRUE), CI_high = quantile(.data[[y_col]], 0.975, na.rm = TRUE)) -> binned_data
+
+# write out the binned data for plotting
+out_bin_tsv <- sub("\\.[^.]*$", "", basename(crossprod_file))
+out_bin_tsv <- paste0(out_bin_tsv, "__binned_data.tsv")
+readr::write_tsv(binned_data, out_bin_tsv)
+message(sprintf("[INFO] Wrote: %s", out_bin_tsv))
 
 binned_data %>%
   filter(n>50) %>%

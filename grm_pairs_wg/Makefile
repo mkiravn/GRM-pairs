@@ -1,17 +1,17 @@
-# Makefile for grm_pairs_wg
+# Makefile for grm_pairs
 #
 # Targets:
-#   make            -- build grm_pairs
-#   make clean      -- remove object files and binary
-#   make install    -- copy binary to ~/bin/
+#   make          -- build grm_pairs binary
+#   make clean    -- remove compiled files
+#   make install  -- copy binary to ~/bin/
 
 CC      = gcc
 CFLAGS  = -O2 -Wall -Wextra -std=c99
 LDFLAGS = -lm
 
-BIN  = grm_pairs
 SRCS = main.c calc_rel_pairs.c
 OBJS = $(SRCS:.c=.o)
+BIN  = grm_pairs
 
 .PHONY: all clean install
 
@@ -22,6 +22,9 @@ $(BIN): $(OBJS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+main.o: main.c 
+calc_rel_pairs.o: calc_rel_pairs.c 
 
 clean:
 	rm -f $(OBJS) $(BIN)

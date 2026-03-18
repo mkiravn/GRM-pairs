@@ -41,6 +41,9 @@ fit_estimator_model <- function(df, y_col, estimator_name) {
   } else if (estimator_name %in% c("h2_ped_SE", "h2_HS_SE", "h2_FS_SE")) {
     # Slope in model with intercept
     m <- lm(y ~ GRM, data = df)
+  } else if (estimator_name %in% c("h2_ped_SE_factors")) {
+    # Slope in model with intercept
+    m <- lm(y ~ GRM+ I(GRM>0.2 & GRM<0.4)+ I(GRM>0.4 & GRM<0.6), data = df)
   } else {
     # h2_unrel, h2_ped, h2_HS, h2_FS: Slope in model without intercept
     m <- lm(y ~ GRM + 0, data = df)
@@ -66,7 +69,8 @@ get_grm_filter <- function(estimator_name) {
     h2_HS_SE = c(0.2, 0.3),
     h2_FS_SE = c(0.4, 0.6),
     h2_ped_SE = c(0.05, 0.7),
-    h2_unrel_SE = c(-Inf, Inf)  # All data
+    h2_ped_SE_factors = c(0.05, 0.7),
+    h2_unrel_SE = c(-Inf, 0.02)  # All data
   )
   ranges[[estimator_name]]
 }
@@ -174,7 +178,7 @@ print(range(xyy$GRM, na.rm = TRUE))
 # Run estimators
 # -------------------------
 estimators_list <- c("h2_unrel", "h2_ped", "h2_ped_W26", "h2_HS", "h2_FS", 
-                     "h2_HS_SE", "h2_FS_SE", "h2_ped_SE", "h2_unrel_SE")
+                     "h2_HS_SE", "h2_FS_SE", "h2_ped_SE", "h2_unrel_SE", "h2_ped_SE_factors")
 
 results_table <- map_df(
   estimators_list, 

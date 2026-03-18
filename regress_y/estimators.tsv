@@ -1,0 +1,10 @@
+estimator	range	model	notes
+h2_unrel	<0.02	Slope in model without intercept	Classic h^2_SNP, with more conservative pruning around bump
+h2_ped	0.05-0.7	Slope in model without intercept	
+h2_ped_W26	0.05-0.7	Slope in model without intercept, with quadratic term (yy ~ beta_0 x + beta_1 x^2 + eps; h^2 estimate is beta_0)	Quadratic term proposed to mop up SE, Wainschtein 2025
+h2_HS	0.2-0.3	Slope in model without intercept	
+h2_FS	0.4-0.6	Slope in model without intercept	Classic sib regression estimate
+h2_HS_SE	0.2-0.3	Slope in model with intercept	Designed to account for mean contribution of shared environment
+h2_FS_SE	0.4-0.6	Slope in model with intercept	
+h2_ped_SE	0.05-0.7	Slope in model with intercept (and factors for sib and half sib and first cousins maybe?)	
+h2_unrel_SE		Slope in model with intercept

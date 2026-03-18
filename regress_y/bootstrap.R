@@ -20,7 +20,7 @@ grm_file        <- args[[2]]
 y_col <- "yy"
 
 # Your requested bins
-bin_breaks <- c(-0.05, 0.03, 0.05, 0.10, 0.20, 0.35, 0.70)
+bin_breaks <- c(-0.05, 0.02, 0.05, 0.10, 0.20, 0.35, 0.70)
 
 # Bootstrap reps + CI level
 B <- 100

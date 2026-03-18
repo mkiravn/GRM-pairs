@@ -1,5 +1,0 @@
-IID	sex	age	pc1
-indiv1	0	25	0.1
-indiv2	1	30	0.2
-indiv3	0	35	NA
-indiv4	1	NA	0.3

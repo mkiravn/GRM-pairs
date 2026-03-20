@@ -96,31 +96,7 @@ int read_phenotype(Pheno_Data *data, char *pheno_prefix) {
     
     fclose(f);
     
-    // Calculate mean and variance
-    double mu = 0.0;
-    long long valid_count = 0;
-    
-    for (long long i = 0; i < data->n_indiv; i++) {
-        if (data->na[i]) {
-            mu += data->y[i];
-            valid_count++;
-        }
-    }
-    mu /= valid_count;
-    
-    double var = 0.0;
-    for (long long i = 0; i < data->n_indiv; i++) {
-        if (data->na[i]) {
-            var += (data->y[i] - mu) * (data->y[i] - mu);
-        }
-    }
-    var /= valid_count;
-    
-    // Standardize
-    double sd = sqrt(var);
-    for (long long i = 0; i < data->n_indiv; i++) {
-        data->y[i] = (data->y[i] - mu) / sd;
-    }
+    // Phenotypes are already residualized and centered - no further standardization needed
     
     return 0;
 }

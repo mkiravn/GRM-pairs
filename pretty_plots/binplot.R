@@ -49,12 +49,17 @@ xyy <- right_join(x, yy, by = c("IID1", "IID2")) %>%
 # -------------------------
 # Binning config
 # -------------------------
-breaks <- sort(unique(c(seq(-0.3, 0.02, by = 0.002), seq(0.02, 0.2, by = 0.005), seq(0.2, 0.7, by = 0.01))))
+breaks <- sort(unique(c(seq(-0.02, 0.02, by = 0.001), seq(0.02, 0.2, by = 0.005), seq(0.2, 0.7, by = 0.01))))
+
+# Fortran binning scheme from phenoCovBins
+fortran_bins <- sort(unique(c(-0.3, seq(-0.02, 0.02, by = 0.001), 0.021, 0.023, 0.026, 0.03, 0.04, 0.05, 0.065, 0.1, 0.13, 0.2, 0.35, 0.72)))
 
 xyy <- xyy %>%
   mutate(
     GRM_bin = cut(GRM, breaks = breaks, include.lowest = TRUE, right = FALSE, labels = FALSE),
-    bin_center = (breaks[GRM_bin] + breaks[GRM_bin + 1]) / 2
+    bin_center = (breaks[GRM_bin] + breaks[GRM_bin + 1]) / 2,
+    GRM_bin_fortran = cut(GRM, breaks = fortran_bins, include.lowest = TRUE, right = FALSE, labels = FALSE),
+    bin_center_fortran = (fortran_bins[GRM_bin_fortran] + fortran_bins[GRM_bin_fortran + 1]) / 2
   ) 
 
 bin_summary <- xyy %>%
@@ -69,11 +74,25 @@ bin_summary <- xyy %>%
     .groups = "drop"
   ) %>% filter(n_pairs>100)
 
+# Fortran bin summary
+fortran_bin_summary <- xyy %>%
+  filter(!is.na(GRM_bin_fortran)) %>%
+  group_by(GRM_bin_fortran, bin_center_fortran) %>%
+  summarise(
+    n_pairs = n(),
+    GRM_mean = mean(GRM, na.rm = TRUE),
+    YY_mean = mean(yy, na.rm = TRUE),
+    YY_median = median(yy, na.rm = TRUE),
+    YY_sd = sd(yy, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% filter(n_pairs>100)
+
 # -------------------------
 # Plot 1: points per bin
 # -------------------------
-p1 <- ggplot(bin_summary, aes(x = bin_center, y = YY_mean)) +
-  geom_point(alpha = 1, size = 1, color = "black") +
+p1 <- ggplot() +
+  geom_point(data = bin_summary, aes(x = bin_center, y = YY_mean), alpha = 1, size = 1, color = "black") +
+  geom_point(data = fortran_bin_summary, aes(x = bin_center_fortran, y = YY_mean), alpha = 1, size = 1, color = "violetred", shape = 4) +
   theme_bw() +
   labs(x = "Genetic Covariance", y = "Mean yy", title = paste0(plot_title, " (bin mean points)")) +
   theme(plot.title = element_text(hjust = 0.5))
@@ -92,14 +111,25 @@ summary_df <- xyy %>%
     mean = mean(yy, na.rm = TRUE),
     .groups = "drop"
   ) %>% filter(n>100)
-p2 <- ggplot(summary_df, aes(x = bin_center)) +
-  geom_linerange(
-    aes(ymin = q25, ymax = q75),
-    color = "lightblue",
-    linewidth = 0.6
-  ) +
-  geom_point(aes(y = q50), color = "steelblue", size = 1.5) +   # median
-  geom_point(aes(y = mean), color = "black", size = 1.2, shape = 4) +  # mean (cross)
+
+fortran_summary_df <- xyy %>%
+  filter(!is.na(GRM_bin_fortran)) %>%
+  group_by(bin_center_fortran) %>%
+  summarise(n=n(),
+    q25 = quantile(yy, 0.25, na.rm = TRUE),
+    q50 = quantile(yy, 0.50, na.rm = TRUE),
+    q75 = quantile(yy, 0.75, na.rm = TRUE),
+    mean = mean(yy, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% filter(n>100)
+
+p2 <- ggplot() +
+  geom_linerange(data = summary_df, aes(x = bin_center, ymin = q25, ymax = q75), color = "lightblue", linewidth = 0.6) +
+  geom_point(data = summary_df, aes(x = bin_center, y = q50), color = "steelblue", size = 1.5) +   # median
+  geom_point(data = summary_df, aes(x = bin_center, y = mean), color = "black", size = 1.2, shape = 4) +  # mean (cross)
+  geom_linerange(data = fortran_summary_df, aes(x = bin_center_fortran, ymin = q25, ymax = q75), color = "pink", linewidth = 0.6) +
+  geom_point(data = fortran_summary_df, aes(x = bin_center_fortran + 0.0002, y = q50), color = "violetred", size = 1.5, shape = 17) +   # median
+  geom_point(data = fortran_summary_df, aes(x = bin_center_fortran+ 0.0002, y = mean), color = "violetred1", size = 1.2, shape = 4) +  # mean (cross)
   theme_bw() +
   facet_wrap(~bin_center > 0.1, scales = "free", ncol=1) +
   labs(

@@ -43,7 +43,7 @@ fit_estimator_model <- function(df, y_col, estimator_name) {
     m <- lm(y ~ GRM, data = df)
   } else if (estimator_name %in% c("h2_ped_SE_factors")) {
     # Slope in model with intercept
-    m <- lm(y ~ GRM+ I(GRM>0.2 & GRM<0.4)+ I(GRM>0.4 & GRM<0.6), data = df)
+    m <- lm(y ~ GRM+ I(GRM>0.1 & GRM<=0.2) + I(GRM>0.2 & GRM<=0.4)+ I(GRM>0.4 & GRM<=0.6), data = df)
   } else {
     # h2_unrel, h2_ped, h2_HS, h2_FS: Slope in model without intercept
     m <- lm(y ~ GRM + 0, data = df)

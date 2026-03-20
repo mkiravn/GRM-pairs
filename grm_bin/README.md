@@ -2,6 +2,12 @@
 
 A C implementation for analyzing phenotype-GRM covariance with binning, equivalent to the Fortran `phenoCovBins` program. Includes a preprocessing step to sort phenotype files.
 
+## Requirements
+
+- **For C version only**: GCC, Make
+- **For R version (recommended)**: Rscript, R package `data.table`
+  - Install with: `R -e "install.packages('data.table')"`
+
 ## Compilation
 
 ```bash
@@ -16,8 +22,24 @@ This creates two executables:
 
 ### Step 1: Sort Phenotype File
 
-Before running the analysis, sort your phenotype file to match the GRM individual ordering:
+Before running the analysis, sort your phenotype file to match the GRM individual ordering.
 
+**Recommended: Use the R version (faster for large datasets)**
+
+```bash
+Rscript sort_pheno.R fileNameGrmPrefix fileNamePhenoInput fileNamePhenoOutput
+```
+
+The R version uses efficient hash-based joins and is typically **10-100× faster** than the C version for large phenotype files.
+
+**Alternative: Use C version (no R dependency)**
+
+First compile:
+```bash
+make
+```
+
+Then run:
 ```bash
 ./sort_pheno fileNameGrmPrefix fileNamePhenoInput fileNamePhenoOutput
 ```
@@ -96,12 +118,15 @@ dx run app-swiss-army-knife \
     N=\$(wc -l < ${id})
     echo \"Number of individuals in shard: \$N\"
     
-    # Clone and build tools
+    # Clone tools (no need to compile - using R for sort)
     git clone https://github.com/mkiravn/GRM-pairs.git
-    cd GRM-pairs/grm_bin && make && cd ../..
     
-    # Sort phenotype (using global ID file)
-    ./GRM-pairs/grm_bin/sort_pheno grm_full ${pheno_file} pheno_sorted.txt
+    # Sort phenotype with R (much faster than C version)
+    # Requires Rscript and data.table package
+    Rscript GRM-pairs/grm_bin/sort_pheno.R grm_full ${pheno_file} pheno_sorted.txt
+    
+    # Compile just the pheno_cov_bins binary
+    cd GRM-pairs/grm_bin && make pheno_cov_bins && cd ../..
     
     # Run analysis on shard
     ./GRM-pairs/grm_bin/pheno_cov_bins \$N pheno_sorted --id-file ${id} --bin-file ${grm}

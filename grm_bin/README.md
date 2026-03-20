@@ -55,14 +55,65 @@ The output file will have:
 After preparing the phenotype file, run the main analysis:
 
 ```bash
-./pheno_cov_bins nIndiv fileNamePhenoPrefix fileNameGrmPrefix
+./pheno_cov_bins nIndiv fileNamePhenoPrefix fileNameGrmPrefix [--id-file ID_FILE] [--bin-file BIN_FILE]
 ```
 
 #### Arguments
 
-- `nIndiv`: Number of individuals in the dataset
+- `nIndiv`: Number of individuals in the dataset/shard
 - `fileNamePhenoPrefix`: Prefix for the **sorted** phenotype file (program expects `fileNamePhenoPrefix.txt`)
 - `fileNameGrmPrefix`: Prefix for GRM files (program expects `fileNameGrmPrefix.grm.bin` and `fileNameGrmPrefix.grm.id`)
+- `--id-file ID_FILE`: Optional separate ID file (for shards with different individual sets)
+- `--bin-file BIN_FILE`: Optional separate binary file (for shards)
+
+#### Examples
+
+**Full GRM:**
+```bash
+./pheno_cov_bins 500000 pheno_sorted grm_full
+```
+
+**GRM Shard:**
+```bash
+./pheno_cov_bins 5000 pheno_sorted --id-file grm_full.grm.id.1 --bin-file grm_full.grm.bin.1
+```
+
+## DNAnexus Usage
+
+For running on DNAnexus with GRM shards:
+
+```bash
+pheno_file="results/phenotypes/p51_i0/p51_i0_residualized_cov1234.txt"
+grm="grm_full.grm.bin.1"
+id="grm_full.grm.id"
+
+dx run app-swiss-army-knife \
+  -iimage="ubuntu:20.04" \
+  -icmd="
+    set -euo pipefail
+    
+    # Get number of individuals in this shard
+    N=\$(wc -l < ${id})
+    echo \"Number of individuals in shard: \$N\"
+    
+    # Clone and build tools
+    git clone https://github.com/mkiravn/GRM-pairs.git
+    cd GRM-pairs/grm_bin && make && cd ../..
+    
+    # Sort phenotype (using global ID file)
+    ./GRM-pairs/grm_bin/sort_pheno grm_full ${pheno_file} pheno_sorted.txt
+    
+    # Run analysis on shard
+    ./GRM-pairs/grm_bin/pheno_cov_bins \$N pheno_sorted --id-file ${id} --bin-file ${grm}
+    
+    # Clean up
+    rm -rf GRM-pairs/
+  " \
+  --destination "/" \
+  --name "grm_bin_shard_analysis" \
+  --instance-type "mem1_ssd1_v2_x4" \
+  --yes
+```
 
 #### Input Files
 

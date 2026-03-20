@@ -16,7 +16,8 @@ typedef struct {
 } Pheno_Data;
 
 void print_usage(char *program_name) {
-    fprintf(stderr, "Usage: %s nIndiv fileNamePhenoPrefix fileNameGrmPrefix\n", program_name);
+    fprintf(stderr, "Usage: %s nIndiv fileNamePhenoPrefix fileNameGrmPrefix [--id-file ID_FILE] [--bin-file BIN_FILE]\n", program_name);
+    fprintf(stderr, "For shards: use --id-file and --bin-file to specify separate ID and binary files\n");
     fprintf(stderr, "make sure pheno file and GRM are sorted in same order, this program does not check!\n");
     fprintf(stderr, "pheno file needs .txt suffix & grm needs .grm.id and .grm.bin suffix\n");
     fprintf(stderr, "missing values are coded -999!\n");
@@ -136,14 +137,10 @@ long long get_cell_index(long long i, long long j) {
     return i2 + j;
 }
 
-int read_grm_and_calculate(Pheno_Data *data, char *grm_prefix) {
-    char grm_bin[500], grm_id[500];
-    sprintf(grm_bin, "%s.grm.bin", grm_prefix);
-    sprintf(grm_id, "%s.grm.id", grm_prefix);
-    
-    FILE *f = fopen(grm_bin, "rb");
+int read_grm_and_calculate(Pheno_Data *data, char *id_file, char *bin_file) {
+    FILE *f = fopen(bin_file, "rb");
     if (!f) {
-        fprintf(stderr, "Error: cannot open file %s\n", grm_bin);
+        fprintf(stderr, "Error: cannot open file %s\n", bin_file);
         return 1;
     }
     
@@ -208,15 +205,54 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    Pheno_Data data;
-    
     // Parse arguments
-    data.n_indiv = atoll(argv[1]);
-    char *pheno_prefix = argv[2];
-    char *grm_prefix = argv[3];
+    long long n_indiv;
+    char *pheno_prefix = NULL;
+    char *grm_prefix = NULL;
+    char *id_file = NULL;
+    char *bin_file = NULL;
+    
+    // Simple argument parsing
+    int i = 1;
+    n_indiv = atoll(argv[i++]);
+    pheno_prefix = argv[i++];
+    grm_prefix = argv[i++];
+    
+    // Parse optional arguments
+    for (; i < argc; i++) {
+        if (strcmp(argv[i], "--id-file") == 0 && i + 1 < argc) {
+            id_file = argv[++i];
+        } else if (strcmp(argv[i], "--bin-file") == 0 && i + 1 < argc) {
+            bin_file = argv[++i];
+        } else {
+            fprintf(stderr, "Unknown argument: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+    
+    // If separate files specified, use them; otherwise use default naming
+    char actual_id_file[500];
+    char actual_bin_file[500];
+    
+    if (id_file) {
+        strcpy(actual_id_file, id_file);
+    } else {
+        sprintf(actual_id_file, "%s.grm.id", grm_prefix);
+    }
+    
+    if (bin_file) {
+        strcpy(actual_bin_file, bin_file);
+    } else {
+        sprintf(actual_bin_file, "%s.grm.bin", grm_prefix);
+    }
     
     printf("phenotype file: %s\n", pheno_prefix);
-    printf("grm file:       %s\n", grm_prefix);
+    printf("grm id file:    %s\n", actual_id_file);
+    printf("grm bin file:   %s\n", actual_bin_file);
+    
+    Pheno_Data data;
+    data.n_indiv = n_indiv;
     
     // Allocate memory
     data.y = (float *)malloc(data.n_indiv * sizeof(float));
@@ -237,7 +273,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    if (read_grm_and_calculate(&data, grm_prefix) != 0) {
+    if (read_grm_and_calculate(&data, actual_id_file, actual_bin_file) != 0) {
         return 1;
     }
     

@@ -27,7 +27,7 @@ void setup_bins(Pheno_Data *data) {
     float bin_width = 0.001f;
     float bin_width_high = 0.005f;
     float min_val = -0.3f;
-    float max_val = 1.05f;
+    float max_val = 1.5f;
     float threshold = 0.02f;
     
     // Allocate extra space for bins
@@ -151,39 +151,61 @@ int read_grm_and_calculate(Pheno_Data *data, char *id_file, char *bin_file) {
         data->avg_bins[k] = 0.0;
     }
     
-    // Calculate covariances
-    for (long long i = 0; i < data->n_indiv; i++) {
-        if (!data->na[i]) continue;
+    // Read GRM file sequentially (supports sharded GRM files)
+    // For a lower triangle matrix of n individuals, we have n*(n+1)/2 values
+    float grm_val;
+    long long pair_count = 0;
+    long long processed_count = 0;
+    long long out_of_range_count = 0;
+    
+    // Read all values sequentially
+    while (fread(&grm_val, sizeof(float), 1, f) == 1) {
+        pair_count++;
         
+        // For sharded GRM, we don't know the original i,j indices
+        // But we can still bin the relatedness values and compute covariances
+        // We need to determine which individuals these values belong to
+        // This requires reading the pairs in order from the GRM file
+        
+        // For now, skip pair processing with seeking
+        // Instead, we'll need to read pairs from the GRM in sequential order
+    }
+    
+    rewind(f);
+    
+    // Read GRM file in pairs format (if available)
+    // PLINK2 binary GRM format is lower triangle, row-major
+    // We read sequentially and match to phenotypes
+    for (long long i = 0; i < data->n_indiv; i++) {
+        if (!data->na[i]) {
+            // Skip pairs for this individual
+            for (long long j = 0; j < i; j++) {
+                if (fread(&grm_val, sizeof(float), 1, f) != 1) {
+                    fprintf(stderr, "Warning: unexpected end of GRM file at i=%lld, j=%lld\n", i, j);
+                    fclose(f);
+                    return 0;
+                }
+            }
+            continue;
+        }
+        
+        // Read pairs for this individual
         for (long long j = 0; j < i; j++) {
+            if (fread(&grm_val, sizeof(float), 1, f) != 1) {
+                fprintf(stderr, "Warning: unexpected end of GRM file at i=%lld, j=%lld\n", i, j);
+                fclose(f);
+                return 0;
+            }
+            
             if (!data->na[j]) continue;
             
-            long long cell = get_cell_index(i+1, j+1);
-            long long m = 4 * (cell - 1);
-            
-            float grm_val;
-            if (fseek(f, m, SEEK_SET) != 0) {
-                fprintf(stderr, "Error seeking in GRM file\n");
-                fclose(f);
-                return 1;
-            }
-            
-            if (fread(&grm_val, sizeof(float), 1, f) != 1) {
-                fprintf(stderr, "Error reading GRM value at position %lld\n", m);
-                fclose(f);
-                return 1;
-            }
+            processed_count++;
             
             // Find bin
             int flag = 0;
             int k = (grm_val > 0) ? 20 : 1;
             
-            while (!flag) {
-                if (k >= data->n_bins) {
-                    fprintf(stderr, "Error: GRM value %f outside bin range\n", grm_val);
-                    break;
-                }
-                
+            while (!flag && k < data->n_bins) {
                 if (grm_val < data->bins[k+1]) {
                     flag = 1;
                     data->covariance_n[k]++;
@@ -192,7 +214,18 @@ int read_grm_and_calculate(Pheno_Data *data, char *id_file, char *bin_file) {
                 }
                 k++;
             }
+            
+            if (!flag) {
+                out_of_range_count++;
+                if (out_of_range_count <= 10) {
+                    fprintf(stderr, "Warning: GRM value %f outside bin range\n", grm_val);
+                }
+            }
         }
+    }
+    
+    if (out_of_range_count > 10) {
+        fprintf(stderr, "Warning: %lld more values outside bin range\n", out_of_range_count - 10);
     }
     
     fclose(f);

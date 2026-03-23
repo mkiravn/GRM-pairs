@@ -39,3 +39,6 @@ he_regression/test_*.txt
 *.swp
 *~
 .DS_Store
+*.grm.bin
+*.grm.id
+*.id

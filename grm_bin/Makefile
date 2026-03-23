@@ -1,26 +1,10 @@
-CC = gcc
-CFLAGS = -O2 -Wall -std=c99
-LDFLAGS = -lm
-TARGETS = pheno_cov_bins sort_pheno
+CXX := g++
+CXXFLAGS := -O3 -std=c++17 -Wall -Wextra
 
-SRCS_PHENO = main.c
-OBJS_PHENO = $(SRCS_PHENO:.c=.o)
+all: grm_bin_cov
 
-SRCS_SORT = sort_pheno.c
-OBJS_SORT = $(SRCS_SORT:.c=.o)
-
-all: $(TARGETS)
-
-pheno_cov_bins: $(OBJS_PHENO)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-sort_pheno: $(OBJS_SORT)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+grm_bin_cov: grm_bin_cov.cpp
+	$(CXX) $(CXXFLAGS) -o grm_bin_cov grm_bin_cov.cpp
 
 clean:
-	rm -f $(OBJS_PHENO) $(OBJS_SORT) $(TARGETS)
-
-.PHONY: all clean
+	rm -f grm_bin_cov

@@ -103,7 +103,7 @@ static std::vector<int> assign_blocks(size_t n, int n_blocks) {
 int main(int argc, char* argv[]) {
     if (argc < 5) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aligned_pheno.txt> <grm_prefix> <output.tsv> <n_blocks>\n";
+                  << " <aligned_pheno.txt> <grm_prefix> <output.tsv> <n_blocks> [jackknife_detail.tsv]\n";
         std::cerr << "aligned_pheno.txt should have two columns: ID phenotype, in GRM order.\n";
         std::cerr << "Missing phenotypes may be encoded as NA or -999.\n";
         return 1;
@@ -113,6 +113,8 @@ int main(int argc, char* argv[]) {
     const std::string grm_prefix = argv[2];
     const std::string output_file = argv[3];
     const int n_blocks = std::stoi(argv[4]);
+    const bool write_detail = (argc >= 6);
+    const std::string detail_file = write_detail ? argv[5] : "";
 
     const std::string grm_id_file = grm_prefix + ".grm.id";
     const std::string grm_bin_file = grm_prefix + ".grm.bin";
@@ -254,6 +256,15 @@ int main(int argc, char* argv[]) {
         std::vector<double> full_avg_grm(nbins, std::numeric_limits<double>::quiet_NaN());
         std::vector<double> full_avg_cov(nbins, std::numeric_limits<double>::quiet_NaN());
         std::vector<double> se_cov(nbins, std::numeric_limits<double>::quiet_NaN());
+        std::vector<std::vector<double>> loo_avg_grm(
+            n_blocks, std::vector<double>(nbins, std::numeric_limits<double>::quiet_NaN())
+        );
+        std::vector<std::vector<double>> loo_avg_cov(
+            n_blocks, std::vector<double>(nbins, std::numeric_limits<double>::quiet_NaN())
+        );
+        std::vector<std::vector<uint64_t>> loo_count(
+            n_blocks, std::vector<uint64_t>(nbins, 0)
+        );
 
         for (size_t k = 0; k < nbins; ++k) {
             if (full[k].count == 0) continue;
@@ -268,7 +279,11 @@ int main(int argc, char* argv[]) {
                 const uint64_t n_keep = full[k].count - drop[b][k].count;
                 if (n_keep == 0) continue;
 
+                const double grm_keep = full[k].sum_grm - drop[b][k].sum_grm;
                 const double s_keep = full[k].sum_cov - drop[b][k].sum_cov;
+                loo_avg_grm[b][k] = grm_keep / static_cast<double>(n_keep);
+                loo_avg_cov[b][k] = s_keep / static_cast<double>(n_keep);
+                loo_count[b][k] = n_keep;
                 loo_cov.push_back(s_keep / static_cast<double>(n_keep));
             }
 
@@ -319,6 +334,31 @@ int main(int argc, char* argv[]) {
         }
 
         std::cerr << "Wrote output to " << output_file << "\n";
+
+        if (write_detail) {
+            std::ofstream detail(detail_file);
+            if (!detail) {
+                throw std::runtime_error("Could not open detail output file: " + detail_file);
+            }
+
+            detail << "block\tbin\tlower\tupper\tavg_grm\tavg_pheno_crossprod\tn_pairs\n";
+            detail << std::fixed << std::setprecision(6);
+
+            for (int b = 0; b < n_blocks; ++b) {
+                for (size_t k = 0; k < nbins; ++k) {
+                    if (loo_count[b][k] == 0) continue;
+                    detail << (b + 1) << '\t'
+                           << (k + 1) << '\t'
+                           << edges[k] << '\t'
+                           << edges[k + 1] << '\t'
+                           << loo_avg_grm[b][k] << '\t'
+                           << loo_avg_cov[b][k] << '\t'
+                           << loo_count[b][k] << '\n';
+                }
+            }
+
+            std::cerr << "Wrote jackknife detail to " << detail_file << "\n";
+        }
     } catch (const std::exception& e) {
         std::cerr << "ERROR: " << e.what() << "\n";
         return 1;

@@ -81,12 +81,12 @@ if (anyNA(match_idx)) {
 }
 
 g_raw <- score[[score_col[1]]][match_idx]
-g_std <- as.numeric(scale(g_raw, center = TRUE, scale = TRUE))
+g_centered <- g_raw - mean(g_raw)
 
 set.seed(seed)
-e_std <- rnorm(length(g_std))
-y <- sqrt(h2) * g_std + sqrt(1 - h2) * e_std
-y <- as.numeric(scale(y, center = TRUE, scale = TRUE))
+e_raw <- rnorm(length(g_centered), sd = sqrt(1 - h2))
+y <- g_centered + e_raw
+y <- y - mean(y)
 
 aligned <- data.frame(
   id = paste(grm_ids$FID, grm_ids$IID, sep = ":"),
@@ -106,7 +106,7 @@ write.table(
 if (!is.na(genetic_out)) {
   genetic_aligned <- data.frame(
     id = paste(grm_ids$FID, grm_ids$IID, sep = ":"),
-    genetic_component = g_std,
+    genetic_component = g_centered,
     stringsAsFactors = FALSE
   )
   write.table(

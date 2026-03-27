@@ -290,7 +290,7 @@ PLINK2=/path/to/plink2 \
     /path/to/grm_prefix \
     pheno_from_score.txt \
     --h2 0.4 \
-    --pi 0.01 \
+    --pi 1.0 \
     --seed 1 \
     --effects-out effects.tsv \
     --genetic-out genetic_component.txt
@@ -298,11 +298,10 @@ PLINK2=/path/to/plink2 \
 
 This workflow:
 
-1. samples sparse SNP effects on the `bfile`
-2. uses `plink2 --score` to compute `g = X beta`
-3. standardizes `g`
-4. simulates `y = sqrt(h2) * g + sqrt(1-h2) * e`
-5. writes the final phenotype in GRM order
+1. samples SNP effects with variance `h2 / M_causal`
+2. uses `plink2 --score variance-standardize` to compute `g = sum_l beta_l * X_tilde_l`
+3. simulates `y = g + e`, with `e ~ N(0, 1-h2)`
+4. writes the final phenotype in GRM order
 
 This is useful when you want the genetic component to arise from explicit causal SNP effects rather than directly from a multivariate normal draw under `G`.
 

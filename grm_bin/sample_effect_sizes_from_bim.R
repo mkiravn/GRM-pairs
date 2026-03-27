@@ -5,7 +5,7 @@ args <- commandArgs(trailingOnly = TRUE)
 usage <- paste(
   "Usage:",
   "sample_effect_sizes_from_bim.R <bim> <out_tsv>",
-  "[--pi 0.01] [--seed 1]",
+  "[--h2 0.4] [--pi 1.0] [--seed 1]",
   sep = "\n  "
 )
 
@@ -15,7 +15,8 @@ if (length(args) < 2) {
 
 bim_file <- args[1]
 out_file <- args[2]
-pi_causal <- 0.01
+h2 <- 0.4
+pi_causal <- 1.0
 seed <- 1L
 
 i <- 3L
@@ -26,7 +27,9 @@ while (i <= length(args)) {
   }
   value <- args[i + 1L]
 
-  if (key == "--pi") {
+  if (key == "--h2") {
+    h2 <- as.numeric(value)
+  } else if (key == "--pi") {
     pi_causal <- as.numeric(value)
   } else if (key == "--seed") {
     seed <- as.integer(value)
@@ -36,6 +39,9 @@ while (i <= length(args)) {
   i <- i + 2L
 }
 
+if (!is.finite(h2) || h2 < 0 || h2 > 1) {
+  stop("--h2 must be between 0 and 1.")
+}
 if (!is.finite(pi_causal) || pi_causal <= 0 || pi_causal > 1) {
   stop("--pi must be in (0, 1].")
 }
@@ -56,7 +62,8 @@ if (!any(causal)) {
 }
 
 beta <- numeric(m)
-beta[causal] <- rnorm(sum(causal))
+beta_sd <- sqrt(h2 / sum(causal))
+beta[causal] <- rnorm(sum(causal), sd = beta_sd)
 
 effects <- data.frame(
   ID = bim$ID,
@@ -76,4 +83,4 @@ write.table(
 )
 
 cat("Wrote effect sizes to", out_file, "\n")
-cat("Variants:", m, " Causal:", sum(causal), "\n")
+cat("Variants:", m, " Causal:", sum(causal), " Beta SD:", beta_sd, "\n")

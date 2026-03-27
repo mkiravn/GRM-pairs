@@ -8,7 +8,7 @@ Usage: simulate_pheno_from_bfile.sh <bfile> <grm_prefix> <out_pheno> [options]
 
 Options:
   --h2 <x>            Trait heritability on the standardized liability scale (default: 0.4)
-  --pi <x>            Fraction of causal SNPs (default: 0.01)
+  --pi <x>            Fraction of causal SNPs (default: 1.0)
   --seed <x>          RNG seed (default: 1)
   --effects-out <f>   Save sampled SNP effects to this file
   --score-out <f>     Save the plink2 .sscore output prefix here
@@ -26,7 +26,7 @@ OUT_PHENO="$3"
 shift 3
 
 H2="0.4"
-PI="0.01"
+PI="1.0"
 SEED="1"
 EFFECTS_OUT=""
 SCORE_OUT=""
@@ -76,12 +76,13 @@ score_prefix="${SCORE_OUT:-$tmpdir/score}"
 Rscript "$SCRIPT_DIR/sample_effect_sizes_from_bim.R" \
   "${BFILE}.bim" \
   "$effects_file" \
+  --h2 "$H2" \
   --pi "$PI" \
   --seed "$SEED"
 
 "$PLINK2" \
   --bfile "$BFILE" \
-  --score "$effects_file" 1 2 3 header-read cols=+scoresums \
+  --score "$effects_file" 1 2 3 header-read variance-standardize cols=maybefid,maybesid,scoresums \
   --out "$score_prefix"
 
 score_file="${score_prefix}.sscore"

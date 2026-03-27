@@ -138,6 +138,13 @@ make
 
 The last argument is the number of contiguous individual blocks for the delete-block jackknife.
 
+To save the leave-one-block bin means for downstream regression SEs, pass one
+more output path:
+
+```bash
+./grm_bin_cov_jackknife aligned_pheno.txt prefix output_jk.tsv 50 output_jk_detail.tsv
+```
+
 ---
 
 ## Output
@@ -158,6 +165,26 @@ For the jackknife binary, the output has one additional column:
 
 ```
 se
+```
+
+If `output_jk_detail.tsv` is requested, it contains the leave-one-block bin
+means with columns:
+
+```text
+block    bin    lower    upper    avg_grm    avg_pheno_crossprod    n_pairs
+```
+
+These can be fed into `fit_bin_regression_jackknife.R` to obtain delete-block
+jackknife SEs for weighted regressions of binned cross-products on binned GRM.
+
+Example:
+
+```bash
+Rscript fit_bin_regression_jackknife.R \
+    output_jk.tsv \
+    output_jk_detail.tsv \
+    regression_jk.tsv \
+    --weights n_pairs
 ```
 
 ---

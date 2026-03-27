@@ -176,6 +176,8 @@ block    bin    lower    upper    avg_grm    avg_pheno_crossprod    n_pairs
 
 These can be fed into `fit_bin_regression_jackknife.R` to obtain delete-block
 jackknife SEs for weighted regressions of binned cross-products on binned GRM.
+The regression rerun is then cheap: it only touches the cached bin summaries,
+not the underlying GRM.
 
 Example:
 
@@ -185,6 +187,30 @@ Rscript fit_bin_regression_jackknife.R \
     output_jk_detail.tsv \
     regression_jk.tsv \
     --weights n_pairs
+```
+
+You can change both the fitted model and the kept GRM ranges without rescanning
+the GRM. For example:
+
+```bash
+# Linear fit on [0.02, 0.4]
+Rscript fit_bin_regression_jackknife.R \
+    output_jk.tsv \
+    output_jk_detail.tsv \
+    linear.tsv \
+    --range 0.02:0.4 \
+    --weights n_pairs
+
+# Quadratic fit on two disjoint GRM ranges
+Rscript fit_bin_regression_jackknife.R \
+    output_jk.tsv \
+    output_jk_detail.tsv \
+    quadratic.tsv \
+    --formula 'avg_pheno_crossprod ~ avg_grm + I(avg_grm^2)' \
+    --range -0.02:0.02 \
+    --range 0.1:0.4 \
+    --weights n_pairs \
+    --cov-out quadratic_cov.tsv
 ```
 
 ---

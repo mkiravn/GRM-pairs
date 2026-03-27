@@ -34,6 +34,17 @@ The implementation is intentionally simple, reproducible, and HPC-friendly.
   - Reads a realized GRM and simulates `y ~ N(0, h2 * GRM + (1-h2) * I)`
   - Writes phenotypes in GRM order plus per-bin truth under the simulation model
 
+- `simulate_pheno_from_bfile.sh`
+  - Samples SNP effect sizes on a PLINK fileset
+  - Uses `plink2 --score` to form the genetic component `X beta`
+  - Writes a phenotype aligned to `.grm.id`
+
+- `sample_effect_sizes_from_bim.R`
+  - Samples sparse SNP effects from a `.bim`
+
+- `simulate_pheno_from_score.R`
+  - Turns a `plink2 --score` output file into an aligned phenotype
+
 - `summarize_simulations.R`
   - Aggregates replicate outputs
   - Compares empirical replicate-to-replicate variability to jackknife SEs
@@ -267,6 +278,33 @@ The summary file includes:
 - `mean_oracle_se_indep`: independence-based oracle SE, useful only as a lower-dependence baseline
 
 `empirical_sd` is the main calibration target. `mean_jackknife_se` should usually be in the same range, while `mean_oracle_se_indep` is expected to be optimistic because pairs within a bin are dependent.
+
+### Genotype-dot-product simulation
+
+If you want a simulation that starts from SNP effects instead of sampling directly from the GRM covariance, use:
+
+```bash
+PLINK2=/path/to/plink2 \
+./simulate_pheno_from_bfile.sh \
+    /path/to/bfile \
+    /path/to/grm_prefix \
+    pheno_from_score.txt \
+    --h2 0.4 \
+    --pi 0.01 \
+    --seed 1 \
+    --effects-out effects.tsv \
+    --genetic-out genetic_component.txt
+```
+
+This workflow:
+
+1. samples sparse SNP effects on the `bfile`
+2. uses `plink2 --score` to compute `g = X beta`
+3. standardizes `g`
+4. simulates `y = sqrt(h2) * g + sqrt(1-h2) * e`
+5. writes the final phenotype in GRM order
+
+This is useful when you want the genetic component to arise from explicit causal SNP effects rather than directly from a multivariate normal draw under `G`.
 
 ---
 

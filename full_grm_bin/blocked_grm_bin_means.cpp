@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -43,6 +44,7 @@ struct Args {
     std::string pheno_path;
     std::string bins_path;
     std::string out_prefix;
+    std::string exclude_pairs_path;
     int nblocks = 100;
     unsigned int seed = 1;
 };
@@ -68,6 +70,8 @@ static Args parse_args(int argc, char** argv) {
             args.bins_path = need_value(key);
         } else if (key == "--out-prefix") {
             args.out_prefix = need_value(key);
+        } else if (key == "--exclude-pairs") {
+            args.exclude_pairs_path = need_value(key);
         } else if (key == "--nblocks") {
             args.nblocks = std::stoi(need_value(key));
         } else if (key == "--seed") {
@@ -83,7 +87,7 @@ static Args parse_args(int argc, char** argv) {
         args.out_prefix.empty()) {
         throw std::runtime_error(
             "Usage: --grm-prefix PREFIX --pheno FILE --bins FILE "
-            "--out-prefix PREFIX [--nblocks 100] [--seed 1]"
+            "--out-prefix PREFIX [--exclude-pairs FILE] [--nblocks 100] [--seed 1]"
         );
     }
 
@@ -404,6 +408,65 @@ static void write_jk_output(
     }
 }
 
+struct PairKey {
+    std::string a;
+    std::string b;
+
+    bool operator==(const PairKey& other) const {
+        return a == other.a && b == other.b;
+    }
+};
+
+struct PairKeyHash {
+    std::size_t operator()(const PairKey& x) const {
+        return std::hash<std::string>()(x.a) ^ (std::hash<std::string>()(x.b) << 1);
+    }
+};
+
+static PairKey make_pair_key(const std::string& x, const std::string& y) {
+    if (x <= y) return {x, y};
+    return {y, x};
+}
+
+static std::unordered_set<PairKey, PairKeyHash> read_excluded_pairs(const std::string& path) {
+    std::unordered_set<PairKey, PairKeyHash> excluded;
+
+    if (path.empty()) {
+        return excluded;
+    }
+
+    std::ifstream in(path);
+    if (!in) {
+        throw std::runtime_error("Could not open exclude-pairs file: " + path);
+    }
+
+    std::string line;
+    bool first_line = true;
+
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+
+        std::istringstream iss(line);
+        std::string x, y;
+
+        if (!(iss >> x >> y)) continue;
+
+        // skip likely header
+        if (first_line) {
+            first_line = false;
+            if ((x == "eid1" && y == "eid2") ||
+                (x == "IID1" && y == "IID2") ||
+                (x == "participant.eid1" && y == "participant.eid2")) {
+                continue;
+            }
+        }
+
+        excluded.insert(make_pair_key(x, y));
+    }
+
+    return excluded;
+}
+
 int main(int argc, char** argv) {
     try {
         Args args = parse_args(argc, argv);
@@ -430,6 +493,11 @@ int main(int argc, char** argv) {
                   << " blocks with seed " << args.seed << "\n";
         std::vector<int> block_of = make_random_blocks(n, args.nblocks, args.seed);
 
+        std::cerr << "[INFO] Reading excluded pairs\n";
+        std::unordered_set<PairKey, PairKeyHash> excluded_pairs =
+            read_excluded_pairs(args.exclude_pairs_path);
+        std::cerr << "[INFO] Excluded pair count: " << excluded_pairs.size() << "\n";
+
         std::vector<Acc> full(nbins);
         std::vector<std::vector<Acc>> excluded(
             args.nblocks, std::vector<Acc>(nbins)
@@ -452,6 +520,14 @@ int main(int argc, char** argv) {
 
                 if (i == j) {
                     continue;
+                }
+
+                // Skip explicitly excluded pairs, matching on IID only
+                if (!excluded_pairs.empty()) {
+                    PairKey key = make_pair_key(ids[i].iid, ids[j].iid);
+                    if (excluded_pairs.find(key) != excluded_pairs.end()) {
+                        continue;
+                    }
                 }
 
                 const double g = static_cast<double>(g_f);

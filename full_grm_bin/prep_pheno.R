@@ -38,14 +38,14 @@ covars <- read.delim('all_covars.tsv', sep = '\t', header = TRUE, check.names = 
 pcs <- read.delim('ukb_subset_pca.eigenvec', header = TRUE, check.names = FALSE)
 
 names(pheno) <- c('participant.eid', 'phenotype')
-pheno\$participant.eid <- as.character(pheno\$participant.eid)
-covars\$participant.eid <- as.character(covars\$participant.eid)
+pheno$participant.eid <- as.character(pheno$participant.eid)
+covars$participant.eid <- as.character(covars$participant.eid)
 
 # Handle PLINK eigenvec format robustly
 if ('IID' %in% names(pcs)) {
-  pcs\$participant.eid <- as.character(pcs\$IID)
+  pcs$participant.eid <- as.character(pcs$IID)
 } else if ('participant.eid' %in% names(pcs)) {
-  pcs\$participant.eid <- as.character(pcs\$participant.eid)
+  pcs$participant.eid <- as.character(pcs$participant.eid)
 } else {
   stop('Could not identify participant ID column in ukb_subset_pca.eigenvec')
 }
@@ -66,8 +66,8 @@ dat <- dat %>%
   )
 
 # 5 SD phenotype filter, Kemper-style
-y_mean <- mean(dat\$phenotype, na.rm = TRUE)
-y_sd <- sd(dat\$phenotype, na.rm = TRUE)
+y_mean <- mean(dat$phenotype, na.rm = TRUE)
+y_sd <- sd(dat$phenotype, na.rm = TRUE)
 
 dat <- dat %>%
   mutate(
@@ -97,30 +97,30 @@ fit2 <- lm(f2, data = dat, na.action = na.exclude)
 fit3 <- lm(f3, data = dat, na.action = na.exclude)
 fit4 <- lm(f4, data = dat, na.action = na.exclude)
 
-cat('==============================\\n')
-cat('Residualization summaries\\n')
-cat('==============================\\n\\n')
+cat('==============================\n')
+cat('Residualization summaries\n')
+cat('==============================\n\n')
 
-cat('Model m1: phenotype_clean ~ sex + age + yob + batch\\n')
+cat('Model m1: phenotype_clean ~ sex + age + yob + batch\n')
 print(summary(fit1))
-cat('\\n')
+cat('\n')
 
-cat('Model m2: phenotype_clean ~ sex + age + yob + batch + gc\\n')
+cat('Model m2: phenotype_clean ~ sex + age + yob + batch + gc\n')
 print(summary(fit2))
-cat('\\n')
+cat('\n')
 
-cat('Model m3: phenotype_clean ~ sex + age + yob + batch + PC1-5\\n')
+cat('Model m3: phenotype_clean ~ sex + age + yob + batch + PC1-5\n')
 print(summary(fit3))
-cat('\\n')
+cat('\n')
 
-cat('Model m4: phenotype_clean ~ sex + age + yob + batch + gc + PC1-5\\n')
+cat('Model m4: phenotype_clean ~ sex + age + yob + batch + gc + PC1-5\n')
 print(summary(fit4))
-cat('\\n')
+cat('\n')
 
-dat\$resid_m1 <- standardize_within_sex(residuals(fit1), dat\$sex)
-dat\$resid_m2 <- standardize_within_sex(residuals(fit2), dat\$sex)
-dat\$resid_m3 <- standardize_within_sex(residuals(fit3), dat\$sex)
-dat\$resid_m4 <- standardize_within_sex(residuals(fit4), dat\$sex)
+dat$resid_m1 <- standardize_within_sex(residuals(fit1), dat$sex)
+dat$resid_m2 <- standardize_within_sex(residuals(fit2), dat$sex)
+dat$resid_m3 <- standardize_within_sex(residuals(fit3), dat$sex)
+dat$resid_m4 <- standardize_within_sex(residuals(fit4), dat$sex)
 
 write_grm_pheno(dat, 'resid_m1', 'pheno_input_m1.txt')
 write_grm_pheno(dat, 'resid_m2', 'pheno_input_m2.txt')

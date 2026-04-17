@@ -26,7 +26,7 @@ write_grm_pheno_multi <- function(df, y_cols, file) {
     transmute(
       FID = participant.eid,
       IID = participant.eid,
-      !!!setNames(lapply(y_cols, function(col) .data[[col]]), y_cols)
+      across(all_of(y_cols))
     )
 
   write.table(
@@ -154,14 +154,13 @@ cat("Model m4: phenotype_clean ~ sex + age + yob + batch + gc + PC1-5\n")
 print(summary(fit4))
 cat("\n")
 
-dat$resid_m1 <- standardize_within_sex(residuals(fit1), dat$sex)
-dat$resid_m2 <- standardize_within_sex(residuals(fit2), dat$sex)
-dat$resid_m3 <- standardize_within_sex(residuals(fit3), dat$sex)
-dat$resid_m4 <- standardize_within_sex(residuals(fit4), dat$sex)
+dat$m1 <- standardize_within_sex(residuals(fit1), dat$sex)
+dat$m2 <- standardize_within_sex(residuals(fit2), dat$sex)
+dat$m3 <- standardize_within_sex(residuals(fit3), dat$sex)
+dat$m4 <- standardize_within_sex(residuals(fit4), dat$sex)
 
-# Write one combined phenotype file for the multi-model C++ script
 write_grm_pheno_multi(
   dat,
-  y_cols = c("resid_m1", "resid_m2", "resid_m3", "resid_m4"),
+  y_cols = c("m1", "m2", "m3", "m4"),
   file = "pheno_input_multi.txt"
 )

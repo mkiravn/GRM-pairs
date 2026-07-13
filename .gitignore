@@ -13,6 +13,8 @@ regress_y/debug
 he_regression/main
 grm_bin/pheno_cov_bins
 grm_bin/sort_pheno
+full_grm_bin/blocked_grm_bin_means
+grm_bin_sharded/grm_shard_tool
 
 # Test files
 test_*.txt

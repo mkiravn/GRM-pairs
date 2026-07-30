@@ -241,7 +241,7 @@ int calc_rel_pairs(const char*  bed_fname,
 
         for (uint32_t i = 0; i < sample_ct; i++) {
             if (!needed[i] || geno[i] == MISSING_GENO) w[i] = NAN;
-            else w[i] = ((double)geno[i] - 2.0 * p) / denom;
+            else w[i] = (2.0 - (double)geno[i] - 2.0 * p) / denom;
         }
 
 #if GRM_VERBOSE_DEBUG

@@ -164,39 +164,20 @@ static double* read_freq_file(const char* freq_fname,
     double freq;
     int    obs;
 
-    if (is_afreq) {
-        /* .afreq format: #CHROM ID REF ALT PROVISIONAL_REF? ALT_FREQS OBS_CT */
-        char provisional[8];
-        while (i < n &&
-               fscanf(f, "%31s %63s %15s %15s %7s %lf %d",
-                      col1, col2, a1_col, a2_col, provisional, &freq, &obs) == 7) {
-            freqs[i] = freq;
-            /* frequency is for ALT (a2_col) */
-            const char* counted = a2_col;
-            alleles[i] = malloc(strlen(counted) + 1);
-            if (!alleles[i]) {
-                for (uint32_t j = 0; j < i; j++) free(alleles[j]);
-                free(alleles); free(freqs); fclose(f); return NULL;
-            }
-            strcpy(alleles[i], counted);
-            i++;
+    while (i < n &&
+           fscanf(f, "%31s %63s %15s %15s %lf %d",
+                  col1, col2, a1_col, a2_col, &freq, &obs) == 6) {
+        freqs[i] = freq;
+        /* .afreq: col3=REF col4=ALT1; frequency is for ALT1 (a2_col) */
+        /* .frq:   col3=A1  col4=A2;   frequency is for A1   (a1_col) */
+        const char* counted = is_afreq ? a2_col : a1_col;
+        alleles[i] = malloc(strlen(counted) + 1);
+        if (!alleles[i]) {
+            for (uint32_t j = 0; j < i; j++) free(alleles[j]);
+            free(alleles); free(freqs); fclose(f); return NULL;
         }
-    } else {
-        /* .frq format: CHR SNP A1 A2 MAF NCHROBS */
-        while (i < n &&
-               fscanf(f, "%31s %63s %15s %15s %lf %d",
-                      col1, col2, a1_col, a2_col, &freq, &obs) == 6) {
-            freqs[i] = freq;
-            /* frequency is for A1 (a1_col) */
-            const char* counted = a1_col;
-            alleles[i] = malloc(strlen(counted) + 1);
-            if (!alleles[i]) {
-                for (uint32_t j = 0; j < i; j++) free(alleles[j]);
-                free(alleles); free(freqs); fclose(f); return NULL;
-            }
-            strcpy(alleles[i], counted);
-            i++;
-        }
+        strcpy(alleles[i], counted);
+        i++;
     }
     fclose(f);
 
